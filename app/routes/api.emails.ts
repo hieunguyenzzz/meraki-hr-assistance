@@ -32,9 +32,21 @@ async function getZohoAccessToken() {
 // Function to fetch emails
 async function fetchZohoEmails(accessToken: string) {
   try {
-    const response = await axios.get('https://mail.zoho.com/api/accounts/v1/emails', {
+    // Get user accounts first
+    const accountsResponse = await axios.get('https://mail.zoho.com/api/accounts', {
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': `Zoho-oauthtoken ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    // Extract the first account ID
+    const accountId = accountsResponse.data.data[0].accountId;
+
+    // Fetch emails for the specific account
+    const emailsResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/emails`, {
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${accessToken}`,
         'Content-Type': 'application/json'
       },
       params: {
@@ -45,17 +57,19 @@ async function fetchZohoEmails(accessToken: string) {
     });
 
     // Transform email data to include only necessary information
-    return response.data.data.map((email: any) => ({
+    return emailsResponse.data.data.map((email: any) => ({
       id: email.messageId,
       subject: email.subject,
-      from: email.from,
-      to: email.to,
-      date: email.date,
-      snippet: email.snippet
+      from: email.fromAddress,
+      to: email.toAddress,
+      date: email.receivedTime ? new Date(parseInt(email.receivedTime)).toISOString() : new Date().toISOString(),
+      snippet: email.summary || '',
+      hasAttachment: email.hasAttachment === '1'
     }));
   } catch (error) {
     console.error('Error fetching Zoho emails:', error);
-    throw new Error('Failed to fetch emails');
+    console.error('Detailed error:', error.response?.data);
+    throw error;
   }
 }
 
@@ -77,14 +91,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
     
     return json({
       success: true,
-      emails: emails.map(email => ({
-        ...email,
-        hasAttachment: email.attachments && email.attachments.length > 0,
-        snippet: truncateText(email.snippet, 150)
-      })),
+      emails,
       total: emails.length
     });
   } catch (error) {
+    console.error('Detailed API Emails Error:', {
+      message: error.message,
+      response: error.response?.data,
+      stack: error.stack
+    });
+
     return json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
