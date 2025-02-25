@@ -59,23 +59,23 @@ async function fetchZohoEmails(accessToken: string) {
       let fullEmailBody = '';
       let attachments: any[] = [];
 
-      // Fetch full email body
+      // Fetch full email body using the correct endpoint
       try {
-        const fullEmailResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/messages/${email.messageId}`, {
+        const fullEmailResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/folders/${email.folderId}/messages/${email.messageId}`, {
           headers: {
             'Authorization': `Zoho-oauthtoken ${accessToken}`,
             'Content-Type': 'application/json'
           }
         });
-        fullEmailBody = fullEmailResponse.data.body || '';
+        fullEmailBody = fullEmailResponse.data.content || fullEmailResponse.data.mailContent || '';
       } catch (bodyError) {
         console.error('Error fetching email body:', bodyError);
       }
 
-      // Process attachments
+      // Process attachments if present
       if (email.hasAttachment === '1') {
         try {
-          const attachmentsResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/messages/${email.messageId}/attachments`, {
+          const attachmentsResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/folders/${email.folderId}/messages/${email.messageId}/attachments`, {
             headers: {
               'Authorization': `Zoho-oauthtoken ${accessToken}`,
               'Content-Type': 'application/json'
@@ -87,7 +87,7 @@ async function fetchZohoEmails(accessToken: string) {
               try {
                 // Generate download URL for each attachment
                 const downloadUrlResponse = await axios.get(
-                  `https://mail.zoho.com/api/accounts/${accountId}/messages/${email.messageId}/attachments/${attachment.attachmentId}/download`, 
+                  `https://mail.zoho.com/api/accounts/${accountId}/folders/${email.folderId}/messages/${email.messageId}/attachments/${attachment.attachmentId}/download`, 
                   {
                     headers: {
                       'Authorization': `Zoho-oauthtoken ${accessToken}`,
@@ -105,15 +105,9 @@ async function fetchZohoEmails(accessToken: string) {
                 };
               } catch (downloadError) {
                 console.error('Error fetching attachment download URL:', downloadError);
-                return {
-                  id: attachment.attachmentId,
-                  name: attachment.attachmentName,
-                  size: attachment.attachmentSize,
-                  type: attachment.attachmentType,
-                  downloadUrl: null
-                };
+                return null;
               }
-            })
+            }).filter(Boolean)
           );
         } catch (attachmentError) {
           console.error('Error fetching attachments:', attachmentError);
@@ -129,6 +123,7 @@ async function fetchZohoEmails(accessToken: string) {
         snippet: email.summary || '',
         body: fullEmailBody,
         hasAttachment: email.hasAttachment === '1',
+        folderId: email.folderId,
         attachments: attachments
       };
     }));
