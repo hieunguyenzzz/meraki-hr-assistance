@@ -20,18 +20,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   console.log('Received State:', state);
   console.log('Request Cookies:', request.headers.get('Cookie'));
 
-  // Validate state to prevent CSRF
-  const storedState = await getStoredState(request);
-  console.log('Stored State:', storedState);
-
-  if (state !== storedState) {
-    console.error('State Mismatch:', {
-      receivedState: state,
-      storedState: storedState
-    });
-    return new Response('Invalid state', { status: 400 });
-  }
-
   if (!code) {
     return new Response('No authorization code', { status: 400 });
   }
