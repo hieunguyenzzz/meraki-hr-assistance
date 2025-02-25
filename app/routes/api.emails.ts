@@ -1,23 +1,27 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import axios from "axios";
+import { retrieveTokens } from "~/utils/token-storage";
 
-// Zoho Mail API configuration
-const ZOHO_CLIENT_ID = process.env.ZOHO_CLIENT_ID;
-const ZOHO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET;
-const ZOHO_REFRESH_TOKEN = process.env.ZOHO_REFRESH_TOKEN;
-
-// Function to get access token
+// Function to get access token using stored refresh token
 async function getZohoAccessToken() {
   try {
+    // Retrieve stored tokens
+    const storedTokens = await retrieveTokens();
+
+    if (!storedTokens || !storedTokens.refresh_token) {
+      throw new Error('No stored Zoho tokens found');
+    }
+
     const response = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
       params: {
-        refresh_token: ZOHO_REFRESH_TOKEN,
-        client_id: ZOHO_CLIENT_ID,
-        client_secret: ZOHO_CLIENT_SECRET,
+        refresh_token: storedTokens.refresh_token,
+        client_id: process.env.ZOHO_CLIENT_ID,
+        client_secret: process.env.ZOHO_CLIENT_SECRET,
         grant_type: 'refresh_token'
       }
     });
+
     return response.data.access_token;
   } catch (error) {
     console.error('Error getting Zoho access token:', error);
@@ -56,9 +60,18 @@ async function fetchZohoEmails(accessToken: string) {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  // Validate request (add authentication middleware if needed)
-  
   try {
+    // Check if Zoho is connected
+    const storedTokens = await retrieveTokens();
+    
+    if (!storedTokens) {
+      return json({
+        success: false,
+        error: 'Zoho Mail is not connected',
+        emails: []
+      }, { status: 401 });
+    }
+
     const accessToken = await getZohoAccessToken();
     const emails = await fetchZohoEmails(accessToken);
     
