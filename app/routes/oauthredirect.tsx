@@ -2,6 +2,7 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import axios from "axios";
 import { generatePkceChallenge } from "~/utils/pkce"; // We'll create this utility
+import { storeTokens } from "~/utils/token-storage"; // Import the token storage utility
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
@@ -22,7 +23,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     // Exchange authorization code for tokens
     const tokenResponse = await exchangeCodeForTokens(code);
 
-    // Store tokens securely (e.g., in a secure server-side session or database)
+    // Store tokens using the token storage utility
     await storeTokens(tokenResponse);
 
     // Redirect to a success page or dashboard
