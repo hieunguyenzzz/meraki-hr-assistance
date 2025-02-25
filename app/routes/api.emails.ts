@@ -52,9 +52,7 @@ async function fetchZohoEmails(accessToken: string) {
         'Content-Type': 'application/json'
       },
       params: {
-        limit: 100,
-        sortBy: 'receivedTime',
-        sortOrder: 'desc'
+        limit: 100
       }
     });
 
