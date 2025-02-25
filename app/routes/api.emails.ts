@@ -29,7 +29,7 @@ async function getZohoAccessToken() {
   }
 }
 
-// Function to fetch emails
+// Function to fetch emails with attachments
 async function fetchZohoEmails(accessToken: string) {
   try {
     // Get user accounts first
@@ -43,90 +43,86 @@ async function fetchZohoEmails(accessToken: string) {
     // Extract the first account ID
     const accountId = accountsResponse.data.data[0].accountId;
 
-    // Fetch emails for the specific account using the correct endpoint
+    // Fetch emails for the specific account
     const emailsResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/messages/view`, {
       headers: {
         'Authorization': `Zoho-oauthtoken ${accessToken}`,
         'Content-Type': 'application/json'
       },
       params: {
-        limit: 100
+        limit: 20 // Reduced to 20 to minimize API calls
       }
     });
 
-    // Transform email data to include more details
-    return await Promise.all(emailsResponse.data.data.map(async (email: any) => {
-      let fullEmailBody = '';
-      let attachments: any[] = [];
+    // Process emails with attachments
+    const processedEmails = [];
+    
+    for (const email of emailsResponse.data.data) {
+      const basicEmail = {
+        id: email.messageId,
+        subject: email.subject || 'No Subject',
+        from: email.fromAddress || 'Unknown Sender',
+        to: email.toAddress || 'Unknown Recipient',
+        date: email.receivedTime ? new Date(parseInt(email.receivedTime)).toISOString() : new Date().toISOString(),
+        snippet: email.summary || '',
+        hasAttachment: email.hasAttachment === '1',
+        folderId: email.folderId || 'Inbox',
+        attachments: []
+      };
 
-      // Fetch full email body using the correct endpoint
-      try {
-        const fullEmailResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/folders/${email.folderId}/messages/${email.messageId}`, {
-          headers: {
-            'Authorization': `Zoho-oauthtoken ${accessToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        fullEmailBody = fullEmailResponse.data.content || fullEmailResponse.data.mailContent || '';
-      } catch (bodyError) {
-        console.error('Error fetching email body:', bodyError);
-      }
-
-      // Process attachments if present
-      if (email.hasAttachment === '1') {
+      // Only fetch attachment details if email has attachments
+      if (basicEmail.hasAttachment) {
         try {
-          const attachmentsResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/folders/${email.folderId}/messages/${email.messageId}/attachments`, {
+          // Use folder-specific endpoint for attachments
+          const attachmentsEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${email.folderId}/messages/${email.messageId}/attachments`;
+          
+          const attachmentsResponse = await axios.get(attachmentsEndpoint, {
             headers: {
               'Authorization': `Zoho-oauthtoken ${accessToken}`,
               'Content-Type': 'application/json'
             }
           });
-
-          attachments = await Promise.all(
-            attachmentsResponse.data.data.map(async (attachment: any) => {
+          
+          if (attachmentsResponse.data && attachmentsResponse.data.data) {
+            // For each attachment, get download URL
+            const attachmentsWithUrls = [];
+            
+            for (const attachment of attachmentsResponse.data.data) {
               try {
-                // Generate download URL for each attachment
-                const downloadUrlResponse = await axios.get(
-                  `https://mail.zoho.com/api/accounts/${accountId}/folders/${email.folderId}/messages/${email.messageId}/attachments/${attachment.attachmentId}/download`, 
-                  {
-                    headers: {
-                      'Authorization': `Zoho-oauthtoken ${accessToken}`,
-                      'Content-Type': 'application/json'
-                    }
+                const downloadEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${email.folderId}/messages/${email.messageId}/attachments/${attachment.attachmentId}/download`;
+                
+                const downloadResponse = await axios.get(downloadEndpoint, {
+                  headers: {
+                    'Authorization': `Zoho-oauthtoken ${accessToken}`,
+                    'Content-Type': 'application/json'
                   }
-                );
-
-                return {
-                  id: attachment.attachmentId,
-                  name: attachment.attachmentName,
-                  size: attachment.attachmentSize,
-                  type: attachment.attachmentType,
-                  downloadUrl: downloadUrlResponse.data.downloadUrl
-                };
+                });
+                
+                if (downloadResponse.data && downloadResponse.data.downloadUrl) {
+                  attachmentsWithUrls.push({
+                    id: attachment.attachmentId,
+                    name: attachment.attachmentName,
+                    size: attachment.attachmentSize,
+                    type: attachment.attachmentType,
+                    downloadUrl: downloadResponse.data.downloadUrl
+                  });
+                }
               } catch (downloadError) {
-                console.error('Error fetching attachment download URL:', downloadError);
-                return null;
+                console.error(`Error getting download URL for attachment ${attachment.attachmentId}:`, downloadError.message);
               }
-            }).filter(Boolean)
-          );
+            }
+            
+            basicEmail.attachments = attachmentsWithUrls;
+          }
         } catch (attachmentError) {
-          console.error('Error fetching attachments:', attachmentError);
+          console.error(`Error fetching attachments for email ${email.messageId}:`, attachmentError.message);
         }
       }
+      
+      processedEmails.push(basicEmail);
+    }
 
-      return {
-        id: email.messageId,
-        subject: email.subject,
-        from: email.fromAddress,
-        to: email.toAddress,
-        date: email.receivedTime ? new Date(parseInt(email.receivedTime)).toISOString() : new Date().toISOString(),
-        snippet: email.summary || '',
-        body: fullEmailBody,
-        hasAttachment: email.hasAttachment === '1',
-        folderId: email.folderId,
-        attachments: attachments
-      };
-    }));
+    return processedEmails;
   } catch (error) {
     console.error('Error fetching Zoho emails:', error);
     console.error('Detailed error:', error.response?.data);
