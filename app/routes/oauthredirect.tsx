@@ -68,7 +68,7 @@ export async function initiateZohoOAuth(request?: Request) {
 
 // Token exchange function
 async function exchangeCodeForTokens(code: string) {
-  const codeVerifier = await retrieveCodeVerifier();
+  const codeVerifier = await retrieveCodeVerifier(request);
 
   if (!codeVerifier) {
     throw new Error('No code verifier found');

@@ -76,11 +76,18 @@ export async function storeCodeVerifier(verifier: string, request?: Request): Pr
 
 export async function retrieveCodeVerifier(request?: Request): Promise<string | null> {
   try {
+    console.log('Retrieving Code Verifier - Request Cookies:', request?.headers.get('Cookie'));
+    
     const session = await sessionStorage.getSession(
       request?.headers.get('Cookie')
     );
     
-    return session.get('code_verifier') || null;
+    const codeVerifier = session.get('code_verifier');
+    
+    console.log('Retrieved Code Verifier:', codeVerifier);
+    console.log('Full Session Data:', session.data);
+    
+    return codeVerifier || null;
   } catch (error) {
     console.error('Error retrieving code verifier:', error);
     return null;
