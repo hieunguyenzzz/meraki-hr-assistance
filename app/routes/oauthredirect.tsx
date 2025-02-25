@@ -25,8 +25,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   try {
-    // Exchange authorization code for tokens
-    const tokenResponse = await exchangeCodeForTokens(code);
+    // Pass request to exchangeCodeForTokens
+    const tokenResponse = await exchangeCodeForTokens(code, request);
 
     // Store tokens using the token storage utility
     await storeTokens(tokenResponse);
@@ -67,7 +67,7 @@ export async function initiateZohoOAuth(request?: Request) {
 }
 
 // Token exchange function
-async function exchangeCodeForTokens(code: string) {
+async function exchangeCodeForTokens(code: string, request: Request) {
   const codeVerifier = await retrieveCodeVerifier(request);
 
   if (!codeVerifier) {
