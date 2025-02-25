@@ -40,6 +40,8 @@ async function fetchZohoEmails(accessToken: string) {
       }
     });
 
+    console.log('Accounts Response:', JSON.stringify(accountsResponse.data, null, 2));
+
     // Extract the first account ID
     const accountId = accountsResponse.data.data[0].accountId;
 
@@ -51,9 +53,13 @@ async function fetchZohoEmails(accessToken: string) {
       }
     });
     
+    console.log('Folders Response:', JSON.stringify(foldersResponse.data, null, 2));
+    
     // Find Inbox folder ID for safer default
     const inboxFolder = foldersResponse.data.data.find((folder: any) => folder.folderType === "Inbox");
     const defaultFolderId = inboxFolder?.folderId || foldersResponse.data.data[0]?.folderId;
+    
+    console.log('Using default folder ID:', defaultFolderId);
 
     // Fetch emails for the specific account
     const emailsResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/messages/view`, {
@@ -62,14 +68,18 @@ async function fetchZohoEmails(accessToken: string) {
         'Content-Type': 'application/json'
       },
       params: {
-        limit: 10 // Further reduced to minimize API calls
+        limit: 5 // Further reduced to minimize API calls during debugging
       }
     });
+
+    console.log('First email in response:', JSON.stringify(emailsResponse.data.data[0], null, 2));
 
     // Process emails with attachments
     const processedEmails = [];
     
     for (const email of emailsResponse.data.data) {
+      console.log(`Processing email ${email.messageId} with subject "${email.subject}"...`);
+      
       const basicEmail = {
         id: email.messageId,
         subject: email.subject || 'No Subject',
@@ -82,11 +92,43 @@ async function fetchZohoEmails(accessToken: string) {
         attachments: []
       };
 
+      console.log(`Email has attachments: ${basicEmail.hasAttachment}, using folder ID: ${basicEmail.folderId}`);
+
       // Only fetch attachment details if email has attachments
       if (basicEmail.hasAttachment) {
         try {
+          // Try to find the correct folder for this email if folderId is missing
+          let folderIdToUse = basicEmail.folderId;
+          
+          if (!folderIdToUse || folderIdToUse === 'undefined') {
+            console.log('Email missing folder ID, searching in all folders...');
+            for (const folder of foldersResponse.data.data) {
+              try {
+                // Check if message exists in this folder
+                const checkMessageResponse = await axios.head(
+                  `https://mail.zoho.com/api/accounts/${accountId}/folders/${folder.folderId}/messages/${email.messageId}`,
+                  {
+                    headers: {
+                      'Authorization': `Zoho-oauthtoken ${accessToken}`,
+                      'Content-Type': 'application/json'
+                    }
+                  }
+                );
+                
+                if (checkMessageResponse.status === 200) {
+                  folderIdToUse = folder.folderId;
+                  console.log(`Found email in folder: ${folder.folderName} (${folderIdToUse})`);
+                  break;
+                }
+              } catch (error) {
+                // Ignore errors, just try next folder
+              }
+            }
+          }
+          
           // Use folder-specific endpoint for attachments
-          const attachmentsEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${basicEmail.folderId}/messages/${email.messageId}/attachments`;
+          const attachmentsEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments`;
+          console.log(`Fetching attachments from: ${attachmentsEndpoint}`);
           
           const attachmentsResponse = await axios.get(attachmentsEndpoint, {
             headers: {
@@ -95,13 +137,16 @@ async function fetchZohoEmails(accessToken: string) {
             }
           });
           
+          console.log('Attachments response:', JSON.stringify(attachmentsResponse.data, null, 2));
+          
           if (attachmentsResponse.data && attachmentsResponse.data.data) {
             // For each attachment, get download URL
             const attachmentsWithUrls = [];
             
             for (const attachment of attachmentsResponse.data.data) {
               try {
-                const downloadEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${basicEmail.folderId}/messages/${email.messageId}/attachments/${attachment.attachmentId}/download`;
+                console.log(`Getting download URL for attachment: ${attachment.attachmentName}`);
+                const downloadEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}/download`;
                 
                 const downloadResponse = await axios.get(downloadEndpoint, {
                   headers: {
@@ -109,6 +154,8 @@ async function fetchZohoEmails(accessToken: string) {
                     'Content-Type': 'application/json'
                   }
                 });
+                
+                console.log('Download response:', JSON.stringify(downloadResponse.data, null, 2));
                 
                 if (downloadResponse.data && downloadResponse.data.downloadUrl) {
                   attachmentsWithUrls.push({
@@ -121,6 +168,11 @@ async function fetchZohoEmails(accessToken: string) {
                 }
               } catch (downloadError) {
                 console.error(`Error getting download URL for attachment ${attachment.attachmentId}:`, downloadError.message);
+                console.error('Download error details:', {
+                  status: downloadError.response?.status,
+                  statusText: downloadError.response?.statusText,
+                  data: downloadError.response?.data
+                });
               }
             }
             
@@ -128,6 +180,11 @@ async function fetchZohoEmails(accessToken: string) {
           }
         } catch (attachmentError) {
           console.error(`Error fetching attachments for email ${email.messageId}:`, attachmentError.message);
+          console.error('Attachment error details:', {
+            status: attachmentError.response?.status,
+            statusText: attachmentError.response?.statusText,
+            data: attachmentError.response?.data
+          });
         }
       }
       
