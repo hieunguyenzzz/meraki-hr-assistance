@@ -40,21 +40,25 @@ async function fetchZohoEmails(accessToken: string) {
       }
     });
 
+    console.log('Accounts Response:', accountsResponse.data);
+
     // Extract the first account ID
     const accountId = accountsResponse.data.data[0].accountId;
 
-    // Fetch emails for the specific account
-    const emailsResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/emails`, {
+    // Fetch emails for the specific account using the correct endpoint
+    const emailsResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/messages/view`, {
       headers: {
         'Authorization': `Zoho-oauthtoken ${accessToken}`,
         'Content-Type': 'application/json'
       },
       params: {
         limit: 100,
-        sortBy: 'date',
+        sortBy: 'receivedTime',
         sortOrder: 'desc'
       }
     });
+
+    console.log('Emails Response:', emailsResponse.data);
 
     // Transform email data to include only necessary information
     return emailsResponse.data.data.map((email: any) => ({
@@ -63,12 +67,13 @@ async function fetchZohoEmails(accessToken: string) {
       from: email.fromAddress,
       to: email.toAddress,
       date: email.receivedTime ? new Date(parseInt(email.receivedTime)).toISOString() : new Date().toISOString(),
-      snippet: email.summary || '',
+      snippet: email.snippet || '',
       hasAttachment: email.hasAttachment === '1'
     }));
   } catch (error) {
     console.error('Error fetching Zoho emails:', error);
     console.error('Detailed error:', error.response?.data);
+    console.error('Error config:', error.config);
     throw error;
   }
 }
