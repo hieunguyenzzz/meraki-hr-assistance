@@ -126,60 +126,48 @@ async function fetchZohoEmails(accessToken: string) {
             }
           }
           
-          // Use folder-specific endpoint for attachments
-          const attachmentsEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments`;
-          console.log(`Fetching attachments from: ${attachmentsEndpoint}`);
+          // Use the correct endpoint to get attachment info
+          const attachmentInfoEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachmentinfo`;
+          console.log(`Fetching attachment info from: ${attachmentInfoEndpoint}`);
           
-          const attachmentsResponse = await axios.get(attachmentsEndpoint, {
+          const attachmentInfoResponse = await axios.get(attachmentInfoEndpoint, {
             headers: {
               'Authorization': `Zoho-oauthtoken ${accessToken}`,
               'Content-Type': 'application/json'
             }
           });
           
-          console.log('Attachments response:', JSON.stringify(attachmentsResponse.data, null, 2));
+          console.log('Attachment info response:', JSON.stringify(attachmentInfoResponse.data, null, 2));
           
-          if (attachmentsResponse.data && attachmentsResponse.data.data) {
-            // For each attachment, get download URL
+          if (attachmentInfoResponse.data && 
+              attachmentInfoResponse.data.data && 
+              attachmentInfoResponse.data.data.attachments) {
+            // For each attachment, create a direct download link
             const attachmentsWithUrls = [];
             
-            for (const attachment of attachmentsResponse.data.data) {
+            for (const attachment of attachmentInfoResponse.data.data.attachments) {
               try {
-                console.log(`Getting download URL for attachment: ${attachment.attachmentName}`);
-                const downloadEndpoint = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}/download`;
+                // Create a direct download URL using the content endpoint
+                const downloadUrl = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`;
                 
-                const downloadResponse = await axios.get(downloadEndpoint, {
-                  headers: {
-                    'Authorization': `Zoho-oauthtoken ${accessToken}`,
-                    'Content-Type': 'application/json'
-                  }
+                attachmentsWithUrls.push({
+                  id: attachment.attachmentId,
+                  name: attachment.attachmentName,
+                  size: attachment.attachmentSize,
+                  type: '', // Not provided in the attachment info
+                  downloadUrl: downloadUrl
                 });
                 
-                console.log('Download response:', JSON.stringify(downloadResponse.data, null, 2));
-                
-                if (downloadResponse.data && downloadResponse.data.downloadUrl) {
-                  attachmentsWithUrls.push({
-                    id: attachment.attachmentId,
-                    name: attachment.attachmentName,
-                    size: attachment.attachmentSize,
-                    type: attachment.attachmentType,
-                    downloadUrl: downloadResponse.data.downloadUrl
-                  });
-                }
+                console.log(`Added attachment: ${attachment.attachmentName} with URL: ${downloadUrl}`);
               } catch (downloadError) {
-                console.error(`Error getting download URL for attachment ${attachment.attachmentId}:`, downloadError.message);
-                console.error('Download error details:', {
-                  status: downloadError.response?.status,
-                  statusText: downloadError.response?.statusText,
-                  data: downloadError.response?.data
-                });
+                console.error(`Error processing attachment ${attachment.attachmentId}:`, downloadError.message);
               }
             }
             
             basicEmail.attachments = attachmentsWithUrls;
           }
         } catch (attachmentError) {
-          console.error(`Error fetching attachments for email ${email.messageId}:`, attachmentError.message);
+          console.error(`Error fetching attachment info for email ${email.messageId}:`, attachmentError.message);
           console.error('Attachment error details:', {
             status: attachmentError.response?.status,
             statusText: attachmentError.response?.statusText,
