@@ -15,9 +15,19 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
 
+  // Log incoming parameters for debugging
+  console.log('Incoming OAuth Redirect:');
+  console.log('Received State:', state);
+
   // Validate state to prevent CSRF
-  const storedState = await getStoredState();
+  const storedState = await getStoredState(request);
+  console.log('Stored State:', storedState);
+
   if (state !== storedState) {
+    console.error('State Mismatch:', {
+      receivedState: state,
+      storedState: storedState
+    });
     return new Response('Invalid state', { status: 400 });
   }
 
@@ -41,15 +51,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 // Function to initiate Zoho OAuth flow
-export async function initiateZohoOAuth() {
+export async function initiateZohoOAuth(request?: Request) {
   const { codeVerifier, codeChallenge } = generatePkceChallenge();
 
   // Store code verifier securely for later use
-  await storeCodeVerifier(codeVerifier);
+  await storeCodeVerifier(codeVerifier, request);
 
   // Generate a random state to prevent CSRF
   const state = generateRandomState();
-  await storeState(state);
+  await storeState(state, request);
 
   const authParams = new URLSearchParams({
     client_id: process.env.ZOHO_CLIENT_ID || '',

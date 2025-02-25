@@ -13,28 +13,73 @@ const sessionStorage = createCookieSessionStorage({
   }
 });
 
-export async function storeState(state: string): Promise<void> {
-  const session = await sessionStorage.getSession();
-  session.set('oauth_state', state);
-  
-  // Commit the session
-  await sessionStorage.commitSession(session);
+export async function storeState(state: string, request?: Request): Promise<string | undefined> {
+  try {
+    const session = await sessionStorage.getSession(
+      request?.headers.get('Cookie')
+    );
+    
+    session.set('oauth_state', state);
+    
+    // Log the stored state for debugging
+    console.log('Storing state:', state);
+    
+    // Commit the session and get the cookie header
+    const cookie = await sessionStorage.commitSession(session);
+    
+    // Log the cookie header
+    console.log('State Storage Cookie Header:', cookie);
+    
+    return cookie;
+  } catch (error) {
+    console.error('Error storing state:', error);
+    throw error;
+  }
 }
 
-export async function getStoredState(): Promise<string | null> {
-  const session = await sessionStorage.getSession();
-  return session.get('oauth_state') || null;
+export async function getStoredState(request?: Request): Promise<string | null> {
+  try {
+    const session = await sessionStorage.getSession(
+      request?.headers.get('Cookie')
+    );
+    
+    const storedState = session.get('oauth_state');
+    
+    // Log the retrieved state for debugging
+    console.log('Retrieved stored state:', storedState);
+    
+    return storedState || null;
+  } catch (error) {
+    console.error('Error retrieving state:', error);
+    return null;
+  }
 }
 
-export async function storeCodeVerifier(verifier: string): Promise<void> {
-  const session = await sessionStorage.getSession();
-  session.set('code_verifier', verifier);
-  
-  // Commit the session
-  await sessionStorage.commitSession(session);
+export async function storeCodeVerifier(verifier: string, request?: Request): Promise<void> {
+  try {
+    const session = await sessionStorage.getSession(
+      request?.headers.get('Cookie')
+    );
+    
+    session.set('code_verifier', verifier);
+    
+    // Commit the session
+    await sessionStorage.commitSession(session);
+  } catch (error) {
+    console.error('Error storing code verifier:', error);
+    throw error;
+  }
 }
 
-export async function retrieveCodeVerifier(): Promise<string | null> {
-  const session = await sessionStorage.getSession();
-  return session.get('code_verifier') || null;
+export async function retrieveCodeVerifier(request?: Request): Promise<string | null> {
+  try {
+    const session = await sessionStorage.getSession(
+      request?.headers.get('Cookie')
+    );
+    
+    return session.get('code_verifier') || null;
+  } catch (error) {
+    console.error('Error retrieving code verifier:', error);
+    return null;
+  }
 } 
