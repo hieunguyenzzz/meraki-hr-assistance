@@ -142,23 +142,49 @@ async function fetchZohoEmails(accessToken: string) {
           if (attachmentInfoResponse.data && 
               attachmentInfoResponse.data.data && 
               attachmentInfoResponse.data.data.attachments) {
-            // For each attachment, create a direct download link
+            // For each attachment, create a direct download link and fetch content preview
             const attachmentsWithUrls = [];
             
             for (const attachment of attachmentInfoResponse.data.data.attachments) {
               try {
-                // Create a direct download URL with the token included
+                // Create download URL as backup
                 const downloadUrl = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}?authtoken=${accessToken}`;
+                
+                // Fetch actual attachment content for preview
+                let contentPreview = '';
+                try {
+                  // Get attachment content
+                  const contentResponse = await axios.get(
+                    `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`,
+                    {
+                      headers: {
+                        'Authorization': `Zoho-oauthtoken ${accessToken}`,
+                        'Content-Type': 'application/json'
+                      },
+                      responseType: 'text',  // Try to get as text
+                      transformResponse: [data => data], // Prevent JSON parsing
+                      maxContentLength: 50000 // Limit size to prevent large downloads
+                    }
+                  );
+                  
+                  // Get first 20 characters as preview
+                  contentPreview = contentResponse.data.substring(0, 20) + '...';
+                  console.log(`Got content preview for ${attachment.attachmentName}: ${contentPreview}`);
+                } catch (contentError) {
+                  console.error(`Error fetching content for attachment ${attachment.attachmentId}:`, contentError.message);
+                  contentPreview = 'Content preview unavailable';
+                }
                 
                 attachmentsWithUrls.push({
                   id: attachment.attachmentId,
                   name: attachment.attachmentName,
                   size: attachment.attachmentSize,
                   type: '', // Not provided in the attachment info
-                  downloadUrl: downloadUrl
+                  downloadUrl: downloadUrl,
+                  contentPreview: contentPreview
                 });
                 
-                console.log(`Added attachment: ${attachment.attachmentName} with URL: ${downloadUrl}`);
+                console.log(`Added attachment: ${attachment.attachmentName} with content preview`);
               } catch (downloadError) {
                 console.error(`Error processing attachment ${attachment.attachmentId}:`, downloadError.message);
               }

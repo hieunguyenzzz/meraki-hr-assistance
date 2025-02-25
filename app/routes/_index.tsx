@@ -70,16 +70,23 @@ export default function Index() {
                 </h4>
                 {email.attachments.length > 0 ? (
                   email.attachments.map((attachment) => (
-                    <div key={attachment.id} className="flex justify-between items-center text-xs text-gray-600 mb-1">
-                      <span className="truncate max-w-[70%]">{attachment.name}</span>
-                      <a 
-                        href={attachment.downloadUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-500 hover:underline"
-                      >
-                        Download
-                      </a>
+                    <div key={attachment.id} className="mb-2 border-b pb-2">
+                      <div className="flex justify-between items-center text-xs text-gray-600 mb-1">
+                        <span className="truncate max-w-[70%]">{attachment.name}</span>
+                        <a 
+                          href={attachment.downloadUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-500 hover:underline"
+                        >
+                          Download
+                        </a>
+                      </div>
+                      {attachment.contentPreview && (
+                        <div className="text-xs bg-gray-50 p-2 rounded font-mono">
+                          {attachment.contentPreview}
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (
