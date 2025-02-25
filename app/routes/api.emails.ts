@@ -40,8 +40,6 @@ async function fetchZohoEmails(accessToken: string) {
       }
     });
 
-    console.log('Accounts Response:', accountsResponse.data);
-
     // Extract the first account ID
     const accountId = accountsResponse.data.data[0].accountId;
 
@@ -52,21 +50,58 @@ async function fetchZohoEmails(accessToken: string) {
         'Content-Type': 'application/json'
       },
       params: {
-        limit: 100
+        limit: 100,
+        // Request full email details
+        includeBody: true,
+        includeAttachments: true
       }
     });
 
-    console.log('Emails Response:', emailsResponse.data);
+    // Transform email data to include more details
+    return await Promise.all(emailsResponse.data.data.map(async (email: any) => {
+      // Fetch full email body
+      const fullEmailResponse = await axios.get(`https://mail.zoho.com/api/accounts/${accountId}/messages/${email.messageId}`, {
+        headers: {
+          'Authorization': `Zoho-oauthtoken ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
 
-    // Transform email data to include only necessary information
-    return emailsResponse.data.data.map((email: any) => ({
-      id: email.messageId,
-      subject: email.subject,
-      from: email.fromAddress,
-      to: email.toAddress,
-      date: email.receivedTime ? new Date(parseInt(email.receivedTime)).toISOString() : new Date().toISOString(),
-      snippet: email.snippet || '',
-      hasAttachment: email.hasAttachment === '1'
+      // Process attachments
+      const attachments = email.attachments ? await Promise.all(
+        email.attachments.map(async (attachment: any) => {
+          // Generate download URL for each attachment
+          const downloadUrlResponse = await axios.get(
+            `https://mail.zoho.com/api/accounts/${accountId}/messages/${email.messageId}/attachments/${attachment.attachmentId}/download`, 
+            {
+              headers: {
+                'Authorization': `Zoho-oauthtoken ${accessToken}`,
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+
+          return {
+            id: attachment.attachmentId,
+            name: attachment.attachmentName,
+            size: attachment.attachmentSize,
+            type: attachment.attachmentType,
+            downloadUrl: downloadUrlResponse.data.downloadUrl
+          };
+        })
+      ) : [];
+
+      return {
+        id: email.messageId,
+        subject: email.subject,
+        from: email.fromAddress,
+        to: email.toAddress,
+        date: email.receivedTime ? new Date(parseInt(email.receivedTime)).toISOString() : new Date().toISOString(),
+        snippet: email.snippet || '',
+        body: fullEmailResponse.data.body || '',
+        hasAttachment: email.hasAttachment === '1',
+        attachments: attachments
+      };
     }));
   } catch (error) {
     console.error('Error fetching Zoho emails:', error);

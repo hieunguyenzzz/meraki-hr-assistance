@@ -52,11 +52,32 @@ export default function Index() {
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-bold text-lg truncate">{email.subject}</h3>
               {email.hasAttachment && (
-                <span className="text-sm text-blue-500">📎 Attachment</span>
+                <span className="text-sm text-blue-500">📎 {email.attachments.length} Attachment(s)</span>
               )}
             </div>
             <p className="text-sm text-gray-600 mb-2">From: {email.from}</p>
             <p className="text-sm text-gray-800 line-clamp-3">{email.snippet}</p>
+            
+            {/* Attachments */}
+            {email.hasAttachment && (
+              <div className="mt-2 border-t pt-2">
+                <h4 className="text-sm font-semibold mb-1">Attachments:</h4>
+                {email.attachments.map((attachment) => (
+                  <div key={attachment.id} className="flex justify-between items-center text-xs text-gray-600">
+                    <span>{attachment.name}</span>
+                    <a 
+                      href={attachment.downloadUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:underline"
+                    >
+                      Download
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+            
             <div className="text-xs text-gray-500 mt-2">
               {new Date(email.date).toLocaleString()}
             </div>
