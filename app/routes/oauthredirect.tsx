@@ -13,6 +13,16 @@ import {
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+  const location = url.searchParams.get('location');
+  const accountsServer = url.searchParams.get('accounts-server');
+
+  console.log('OAuth Redirect Details:', {
+    code,
+    state,
+    location,
+    accountsServer
+  });
 
   if (!code) {
     return new Response('No authorization code', { status: 400 });
@@ -20,21 +30,30 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   try {
     const tokenResponse = await exchangeCodeForTokens(code);
-    await storeTokens(tokenResponse);
+    
+    // Add additional metadata to the token response
+    const enhancedTokenResponse = {
+      ...tokenResponse,
+      created_at: new Date().toISOString(),
+      location,
+      accounts_server: accountsServer
+    };
+
+    await storeTokens(enhancedTokenResponse);
     return redirect('/dashboard');
   } catch (error) {
-    console.error('OAuth token exchange error:', error);
-    return new Response('Authentication failed', { status: 500 });
+    console.error('Detailed OAuth Error:', {
+      message: error.message,
+      response: error.response?.data,
+      stack: error.stack
+    });
+    
+    return new Response(`Authentication failed: ${error.message}`, { status: 500 });
   }
 }
 
 // Function to initiate Zoho OAuth flow
 export async function initiateZohoOAuth(request?: Request) {
-  const { codeVerifier, codeChallenge } = generatePkceChallenge();
-
-  // Store code verifier securely for later use
-  await storeCodeVerifier(codeVerifier, request);
-
   // Generate a random state to prevent CSRF
   const state = generateRandomState();
   await storeState(state, request);
@@ -43,12 +62,10 @@ export async function initiateZohoOAuth(request?: Request) {
     client_id: process.env.ZOHO_CLIENT_ID || '',
     response_type: 'code',
     redirect_uri: 'https://hr-assistance.hieunguyen.dev/oauthredirect',
-    // Comprehensive scopes for Zoho Mail
-    scope: 'ZohoMail.accounts.READ ZohoMail.messages.READ offline_access', 
+    // More explicit and comprehensive scopes
+    scope: 'ZohoMail.accounts.READ,ZohoMail.messages.READ,ZohoMail.folders.READ,offline_access', 
     state: state,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-    access_type: 'offline' // This is crucial for getting a refresh token
+    access_type: 'offline' // Explicitly request a refresh token
   });
 
   // Redirect to Zoho authorization URL
@@ -73,14 +90,19 @@ async function exchangeCodeForTokens(code: string) {
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        },
+        timeout: 10000
       }
     );
 
     console.log('Token Exchange Response:', response.data);
     return response.data;
   } catch (error) {
-    console.error('Token Exchange Error:', error.response ? error.response.data : error.message);
+    console.error('Token Exchange Error Details:', {
+      errorMessage: error.message,
+      errorResponse: error.response?.data,
+      errorStatus: error.response?.status
+    });
     throw error;
   }
 }
