@@ -61,22 +61,32 @@ export default function Index() {
             <p className="text-sm text-gray-800 line-clamp-3">{email.snippet}</p>
             
             {/* Attachments */}
-            {email.hasAttachment && email.attachments.length > 0 && (
+            {email.hasAttachment && (
               <div className="mt-2 border-t pt-2">
-                <h4 className="text-sm font-semibold mb-1">Attachments:</h4>
-                {email.attachments.map((attachment) => (
-                  <div key={attachment.id} className="flex justify-between items-center text-xs text-gray-600 mb-1">
-                    <span className="truncate max-w-[70%]">{attachment.name}</span>
-                    <a 
-                      href={attachment.downloadUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-blue-500 hover:underline"
-                    >
-                      Download
-                    </a>
-                  </div>
-                ))}
+                <h4 className="text-sm font-semibold mb-1">
+                  Attachments: {email.attachments.length > 0 ? 
+                    `(${email.attachments.length})` : 
+                    "(Unable to fetch attachments)"}
+                </h4>
+                {email.attachments.length > 0 ? (
+                  email.attachments.map((attachment) => (
+                    <div key={attachment.id} className="flex justify-between items-center text-xs text-gray-600 mb-1">
+                      <span className="truncate max-w-[70%]">{attachment.name}</span>
+                      <a 
+                        href={attachment.downloadUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-500 hover:underline"
+                      >
+                        Download
+                      </a>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    Attachments may require additional permissions
+                  </p>
+                )}
               </div>
             )}
             

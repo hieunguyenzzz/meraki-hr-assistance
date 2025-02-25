@@ -62,8 +62,8 @@ export async function initiateZohoOAuth(request?: Request) {
     client_id: process.env.ZOHO_CLIENT_ID || '',
     response_type: 'code',
     redirect_uri: 'https://hr-assistance.hieunguyen.dev/oauthredirect',
-    // More explicit and comprehensive scopes
-    scope: 'ZohoMail.accounts.READ,ZohoMail.messages.READ,ZohoMail.folders.READ,offline_access', 
+    // More explicit and comprehensive scopes including attachment access
+    scope: 'ZohoMail.accounts.READ,ZohoMail.messages.READ,ZohoMail.messages.ALL,ZohoMail.folders.READ,ZohoMail.folders.ALL,ZohoMail.attachments.READ,offline_access', 
     state: state,
     access_type: 'offline' // Explicitly request a refresh token
   });
