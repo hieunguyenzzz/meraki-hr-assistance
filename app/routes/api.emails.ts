@@ -30,7 +30,7 @@ async function getZohoAccessToken() {
 }
 
 // Function to fetch emails with attachments
-async function fetchZohoEmails(accessToken: string) {
+async function fetchZohoEmails(accessToken: string, limit: number = 5) {
   try {
     // Get user accounts first
     const accountsResponse = await axios.get('https://mail.zoho.com/api/accounts', {
@@ -68,7 +68,7 @@ async function fetchZohoEmails(accessToken: string) {
         'Content-Type': 'application/json'
       },
       params: {
-        limit: 5 // Further reduced to minimize API calls during debugging
+        limit: limit
       }
     });
 
@@ -153,7 +153,7 @@ async function fetchZohoEmails(accessToken: string) {
                 // Fetch actual attachment content for preview
                 let contentPreview = '';
                 try {
-                  // Get attachment content
+                  // Get attachment content - use arraybuffer to handle binary data properly
                   const contentResponse = await axios.get(
                     `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`,
                     {
@@ -161,15 +161,30 @@ async function fetchZohoEmails(accessToken: string) {
                         'Authorization': `Zoho-oauthtoken ${accessToken}`,
                         'Content-Type': 'application/json'
                       },
-                      responseType: 'text',  // Try to get as text
-                      transformResponse: [data => data], // Prevent JSON parsing
-                      maxContentLength: 50000 // Limit size to prevent large downloads
+                      responseType: 'arraybuffer',
+                      // Remove the maxContentLength restriction
                     }
                   );
                   
-                  // Get first 20 characters as preview
-                  contentPreview = contentResponse.data.substring(0, 20) + '...';
-                  console.log(`Got content preview for ${attachment.attachmentName}: ${contentPreview}`);
+                  // Check content type to determine how to handle the preview
+                  const contentType = contentResponse.headers['content-type'];
+                  
+                  if (contentType && contentType.includes('text')) {
+                    // For text content, convert buffer to string and take first 100 chars
+                    const textContent = Buffer.from(contentResponse.data).toString('utf-8');
+                    contentPreview = textContent.substring(0, 100) + '...';
+                  } else if (contentType && contentType.includes('image')) {
+                    contentPreview = '[Image content]';
+                  } else if (contentType && contentType.includes('pdf')) {
+                    contentPreview = '[PDF document]';
+                  } else if (contentType && contentType.includes('application')) {
+                    contentPreview = '[Application content]';
+                  } else {
+                    // For other types, just indicate binary content
+                    contentPreview = `[Binary content: ${contentType || 'unknown type'}]`;
+                  }
+                  
+                  console.log(`Got content preview for ${attachment.attachmentName}: ${contentPreview.substring(0, 30)}...`);
                 } catch (contentError) {
                   console.error(`Error fetching content for attachment ${attachment.attachmentId}:`, contentError.message);
                   contentPreview = 'Content preview unavailable';
@@ -216,6 +231,10 @@ async function fetchZohoEmails(accessToken: string) {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   try {
+    // Get URL parameters
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit') || '5', 10);
+    
     // Check if Zoho is connected
     const storedTokens = await retrieveTokens();
     
@@ -228,7 +247,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
 
     const accessToken = await getZohoAccessToken();
-    const emails = await fetchZohoEmails(accessToken);
+    const emails = await fetchZohoEmails(accessToken, limit);
     
     return json({
       success: true,

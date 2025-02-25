@@ -5,9 +5,9 @@ import { retrieveTokens } from "~/utils/token-storage";
 import axios from "axios";
 
 // Function to fetch emails
-async function fetchLatestEmails() {
+async function fetchLatestEmails(limit = 10) {
   try {
-    const response = await axios.get('/api/emails');
+    const response = await axios.get(`/api/emails?limit=${limit}`);
     return response.data.emails || [];
   } catch (error) {
     console.error('Error fetching emails:', error);
@@ -25,17 +25,22 @@ export const meta: MetaFunction = () => {
 export async function loader({ request }: LoaderFunctionArgs) {
   const tokens = await retrieveTokens();
   
-  const emailData = tokens ? await fetchLatestEmails() : [];
+  // Default to 10 emails or get from URL
+  const url = new URL(request.url);
+  const limit = parseInt(url.searchParams.get('limit') || '10', 10);
+  
+  const emailData = tokens ? await fetchLatestEmails(limit) : [];
 
   return json({
     isConnected: !!tokens,
     connectedAt: tokens ? new Date(tokens.created_at).toLocaleString() : null,
-    emails: emailData
+    emails: emailData,
+    limit
   });
 }
 
 export default function Index() {
-  const { isConnected, connectedAt, emails } = useLoaderData<typeof loader>();
+  const { isConnected, connectedAt, emails, limit } = useLoaderData<typeof loader>();
 
   const renderEmailGrid = () => {
     if (!emails || emails.length === 0) {
