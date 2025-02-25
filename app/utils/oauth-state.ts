@@ -1,4 +1,5 @@
 import { createCookieSessionStorage } from "@remix-run/node";
+import { generatePkceChallenge } from "~/utils/pkce";
 
 // Create a session storage for OAuth state and code verifier
 const sessionStorage = createCookieSessionStorage({
@@ -15,6 +16,7 @@ const sessionStorage = createCookieSessionStorage({
 
 export async function storeState(state: string, request?: Request): Promise<string | undefined> {
   try {
+    // Always create a new session if no existing cookie
     const session = await sessionStorage.getSession(
       request?.headers.get('Cookie')
     );
@@ -47,6 +49,7 @@ export async function getStoredState(request?: Request): Promise<string | null> 
     
     // Log the retrieved state for debugging
     console.log('Retrieved stored state:', storedState);
+    console.log('Full session data:', session.data);
     
     return storedState || null;
   } catch (error) {
@@ -82,4 +85,31 @@ export async function retrieveCodeVerifier(request?: Request): Promise<string | 
     console.error('Error retrieving code verifier:', error);
     return null;
   }
+}
+
+export async function initiateZohoOAuth(request?: Request) {
+  const { codeVerifier, codeChallenge } = generatePkceChallenge();
+
+  await storeCodeVerifier(codeVerifier, request);
+
+  const state = generateRandomState();
+  await storeState(state, request);
+
+  const authParams = new URLSearchParams({
+    client_id: process.env.ZOHO_CLIENT_ID || '',
+    response_type: 'code',
+    redirect_uri: 'https://hr-assistance.hieunguyen.dev/oauthredirect',
+    scope: 'ZohoMail.accounts.READ ZohoMail.messages.READ offline_access', 
+    state: state,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    access_type: 'offline'
+  });
+
+  return `https://accounts.zoho.com/oauth/v2/auth?${authParams.toString()}`;
+}
+
+function generateRandomState(): string {
+  return Math.random().toString(36).substring(2, 15) + 
+         Math.random().toString(36).substring(2, 15);
 } 

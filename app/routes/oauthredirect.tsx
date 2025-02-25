@@ -18,6 +18,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   // Log incoming parameters for debugging
   console.log('Incoming OAuth Redirect:');
   console.log('Received State:', state);
+  console.log('Request Cookies:', request.headers.get('Cookie'));
 
   // Validate state to prevent CSRF
   const storedState = await getStoredState(request);
