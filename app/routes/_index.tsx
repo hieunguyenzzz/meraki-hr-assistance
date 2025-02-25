@@ -12,7 +12,7 @@ export default function Index() {
   return (
     <div className="container mx-auto p-4">
       <h1>Connect Zoho Mail</h1>
-      <Form method="post" action="/connect.zoho">
+      <Form method="post" action="/connect/zoho">
         <button 
           type="submit" 
           className="bg-blue-500 text-white px-4 py-2 rounded"
