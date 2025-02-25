@@ -13,25 +13,14 @@ import {
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
-  const state = url.searchParams.get('state');
-
-  // Log incoming parameters for debugging
-  console.log('Incoming OAuth Redirect:');
-  console.log('Received State:', state);
-  console.log('Request Cookies:', request.headers.get('Cookie'));
 
   if (!code) {
     return new Response('No authorization code', { status: 400 });
   }
 
   try {
-    // Pass request to exchangeCodeForTokens
-    const tokenResponse = await exchangeCodeForTokens(code, request);
-
-    // Store tokens using the token storage utility
+    const tokenResponse = await exchangeCodeForTokens(code);
     await storeTokens(tokenResponse);
-
-    // Redirect to a success page or dashboard
     return redirect('/dashboard');
   } catch (error) {
     console.error('OAuth token exchange error:', error);
@@ -67,21 +56,14 @@ export async function initiateZohoOAuth(request?: Request) {
 }
 
 // Token exchange function
-async function exchangeCodeForTokens(code: string, request: Request) {
-  const codeVerifier = await retrieveCodeVerifier(request);
-
-  if (!codeVerifier) {
-    throw new Error('No code verifier found');
-  }
-
+async function exchangeCodeForTokens(code: string) {
   const response = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
     params: {
       grant_type: 'authorization_code',
       client_id: process.env.ZOHO_CLIENT_ID,
       client_secret: process.env.ZOHO_CLIENT_SECRET,
       redirect_uri: 'https://hr-assistance.hieunguyen.dev/oauthredirect',
-      code: code,
-      code_verifier: codeVerifier
+      code: code
     }
   });
 

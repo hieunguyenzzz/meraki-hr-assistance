@@ -95,10 +95,6 @@ export async function retrieveCodeVerifier(request?: Request): Promise<string | 
 }
 
 export async function initiateZohoOAuth(request?: Request) {
-  const { codeVerifier, codeChallenge } = generatePkceChallenge();
-
-  await storeCodeVerifier(codeVerifier, request);
-
   const state = generateRandomState();
   await storeState(state, request);
 
@@ -108,8 +104,6 @@ export async function initiateZohoOAuth(request?: Request) {
     redirect_uri: 'https://hr-assistance.hieunguyen.dev/oauthredirect',
     scope: 'ZohoMail.accounts.READ ZohoMail.messages.READ offline_access', 
     state: state,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
     access_type: 'offline'
   });
 
