@@ -1,8 +1,14 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import axios from "axios";
-import { generatePkceChallenge } from "~/utils/pkce"; // We'll create this utility
-import { storeTokens } from "~/utils/token-storage"; // Import the token storage utility
+import { generatePkceChallenge } from "~/utils/pkce";
+import { storeTokens } from "~/utils/token-storage";
+import { 
+  storeState, 
+  getStoredState, 
+  storeCodeVerifier, 
+  retrieveCodeVerifier 
+} from "~/utils/oauth-state";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
@@ -10,7 +16,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const state = url.searchParams.get('state');
 
   // Validate state to prevent CSRF
-  const storedState = await getStoredState(); // Implement state storage/validation
+  const storedState = await getStoredState();
   if (state !== storedState) {
     return new Response('Invalid state', { status: 400 });
   }
@@ -65,6 +71,10 @@ export async function initiateZohoOAuth() {
 async function exchangeCodeForTokens(code: string) {
   const codeVerifier = await retrieveCodeVerifier();
 
+  if (!codeVerifier) {
+    throw new Error('No code verifier found');
+  }
+
   const response = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
     params: {
       grant_type: 'authorization_code',
@@ -76,36 +86,7 @@ async function exchangeCodeForTokens(code: string) {
     }
   });
 
-  // Log the refresh token (only do this once for initial setup)
-  console.log('Refresh Token:', response.data.refresh_token);
-
   return response.data;
-}
-
-// Utility functions (implement these based on your storage mechanism)
-async function getStoredState(): Promise<string> {
-  // Implement secure state retrieval (e.g., from session or encrypted storage)
-  throw new Error('Not implemented');
-}
-
-async function storeState(state: string): Promise<void> {
-  // Implement secure state storage
-  throw new Error('Not implemented');
-}
-
-async function storeTokens(tokens: any): Promise<void> {
-  // Implement secure token storage
-  throw new Error('Not implemented');
-}
-
-async function storeCodeVerifier(verifier: string): Promise<void> {
-  // Implement secure code verifier storage
-  throw new Error('Not implemented');
-}
-
-async function retrieveCodeVerifier(): Promise<string> {
-  // Implement secure code verifier retrieval
-  throw new Error('Not implemented');
 }
 
 // Utility to generate random state
