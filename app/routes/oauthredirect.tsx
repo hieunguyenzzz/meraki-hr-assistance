@@ -57,17 +57,32 @@ export async function initiateZohoOAuth(request?: Request) {
 
 // Token exchange function
 async function exchangeCodeForTokens(code: string) {
-  const response = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
-    params: {
-      grant_type: 'authorization_code',
-      client_id: process.env.ZOHO_CLIENT_ID,
-      client_secret: process.env.ZOHO_CLIENT_SECRET,
-      redirect_uri: 'https://hr-assistance.hieunguyen.dev/oauthredirect',
-      code: code
-    }
-  });
+  try {
+    console.log('Exchanging code:', code);
+    console.log('Client ID:', process.env.ZOHO_CLIENT_ID);
+    console.log('Redirect URI:', 'https://hr-assistance.hieunguyen.dev/oauthredirect');
 
-  return response.data;
+    const response = await axios.post('https://accounts.zoho.com/oauth/v2/token', 
+      new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: process.env.ZOHO_CLIENT_ID || '',
+        client_secret: process.env.ZOHO_CLIENT_SECRET || '',
+        redirect_uri: 'https://hr-assistance.hieunguyen.dev/oauthredirect',
+        code: code
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
+
+    console.log('Token Exchange Response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Token Exchange Error:', error.response ? error.response.data : error.message);
+    throw error;
+  }
 }
 
 // Utility to generate random state
