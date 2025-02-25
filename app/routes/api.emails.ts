@@ -147,8 +147,8 @@ async function fetchZohoEmails(accessToken: string) {
             
             for (const attachment of attachmentInfoResponse.data.data.attachments) {
               try {
-                // Create a direct download URL using the content endpoint
-                const downloadUrl = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`;
+                // Create a direct download URL with the token included
+                const downloadUrl = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}?authtoken=${accessToken}`;
                 
                 attachmentsWithUrls.push({
                   id: attachment.attachmentId,

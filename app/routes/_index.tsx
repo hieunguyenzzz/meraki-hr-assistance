@@ -3,7 +3,6 @@ import { json } from "@remix-run/node";
 import { Form, useLoaderData } from "@remix-run/react";
 import { retrieveTokens } from "~/utils/token-storage";
 import axios from "axios";
-import { useState, useEffect } from "react";
 
 // Function to fetch emails
 async function fetchLatestEmails() {
@@ -37,26 +36,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function Index() {
   const { isConnected, connectedAt, emails } = useLoaderData<typeof loader>();
-  const [accessToken, setAccessToken] = useState("");
-
-  useEffect(() => {
-    // Get access token for attachment downloads
-    const fetchAccessToken = async () => {
-      try {
-        const response = await fetch('/api/token');
-        const data = await response.json();
-        if (data.accessToken) {
-          setAccessToken(data.accessToken);
-        }
-      } catch (error) {
-        console.error('Error fetching access token:', error);
-      }
-    };
-    
-    if (isConnected) {
-      fetchAccessToken();
-    }
-  }, [isConnected]);
 
   const renderEmailGrid = () => {
     if (!emails || emails.length === 0) {
@@ -94,11 +73,9 @@ export default function Index() {
                     <div key={attachment.id} className="flex justify-between items-center text-xs text-gray-600 mb-1">
                       <span className="truncate max-w-[70%]">{attachment.name}</span>
                       <a 
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          window.open(`${attachment.downloadUrl}?authtoken=${accessToken}`, '_blank');
-                        }}
+                        href={attachment.downloadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="text-blue-500 hover:underline"
                       >
                         Download
