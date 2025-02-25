@@ -1,25 +1,49 @@
-import type { MetaFunction } from "@remix-run/node";
-import { Form } from "@remix-run/react";
+import type { MetaFunction, LoaderFunctionArgs } from "@remix-run/node";
+import { json } from "@remix-run/node";
+import { Form, useLoaderData } from "@remix-run/react";
+import { retrieveTokens } from "~/utils/token-storage";
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "New Remix App" },
-    { name: "description", content: "Welcome to Remix!" },
+    { title: "Meraki HR Assistance" },
+    { name: "description", content: "HR Assistance Dashboard" },
   ];
 };
 
+export async function loader({ request }: LoaderFunctionArgs) {
+  const tokens = await retrieveTokens();
+  
+  return json({
+    isConnected: !!tokens,
+    connectedAt: tokens ? new Date(tokens.created_at).toLocaleString() : null
+  });
+}
+
 export default function Index() {
+  const { isConnected, connectedAt } = useLoaderData<typeof loader>();
+
   return (
     <div className="container mx-auto p-4">
-      <h1>Connect Zoho Mail</h1>
-      <Form method="post" action="/connect/zoho">
-        <button 
-          type="submit" 
-          className="bg-blue-500 text-white px-4 py-2 rounded"
-        >
-          Connect Zoho Mail
-        </button>
-      </Form>
+      <h1 className="text-2xl font-bold mb-4">Zoho Mail Integration</h1>
+      
+      {isConnected ? (
+        <div className="bg-green-100 p-4 rounded">
+          <p className="text-green-800">Zoho Mail is connected</p>
+          <p className="text-sm text-gray-600">Connected at: {connectedAt}</p>
+        </div>
+      ) : (
+        <div className="bg-red-100 p-4 rounded">
+          <p className="text-red-800 mb-4">Zoho Mail is not connected</p>
+          <Form method="post" action="/connect/zoho">
+            <button 
+              type="submit" 
+              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition"
+            >
+              Connect Zoho Mail
+            </button>
+          </Form>
+        </div>
+      )}
     </div>
   );
 }
