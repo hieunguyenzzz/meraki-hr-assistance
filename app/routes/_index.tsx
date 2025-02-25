@@ -2,6 +2,18 @@ import type { MetaFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { Form, useLoaderData } from "@remix-run/react";
 import { retrieveTokens } from "~/utils/token-storage";
+import axios from "axios";
+
+// Function to fetch emails
+async function fetchLatestEmails() {
+  try {
+    const response = await axios.get('/api/emails');
+    return response.data.emails || [];
+  } catch (error) {
+    console.error('Error fetching emails:', error);
+    return [];
+  }
+}
 
 export const meta: MetaFunction = () => {
   return [
@@ -13,23 +25,60 @@ export const meta: MetaFunction = () => {
 export async function loader({ request }: LoaderFunctionArgs) {
   const tokens = await retrieveTokens();
   
+  const emailData = tokens ? await fetchLatestEmails() : [];
+
   return json({
     isConnected: !!tokens,
-    connectedAt: tokens ? new Date(tokens.created_at).toLocaleString() : null
+    connectedAt: tokens ? new Date(tokens.created_at).toLocaleString() : null,
+    emails: emailData
   });
 }
 
 export default function Index() {
-  const { isConnected, connectedAt } = useLoaderData<typeof loader>();
+  const { isConnected, connectedAt, emails } = useLoaderData<typeof loader>();
+
+  const renderEmailGrid = () => {
+    if (!emails || emails.length === 0) {
+      return <p className="text-gray-500">No emails found</p>;
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {emails.map((email) => (
+          <div 
+            key={email.id} 
+            className="bg-white shadow-md rounded-lg p-4 border hover:shadow-lg transition"
+          >
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-bold text-lg truncate">{email.subject}</h3>
+              {email.hasAttachment && (
+                <span className="text-sm text-blue-500">📎 Attachment</span>
+              )}
+            </div>
+            <p className="text-sm text-gray-600 mb-2">From: {email.from}</p>
+            <p className="text-sm text-gray-800 line-clamp-3">{email.snippet}</p>
+            <div className="text-xs text-gray-500 mt-2">
+              {new Date(email.date).toLocaleString()}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Zoho Mail Integration</h1>
       
       {isConnected ? (
-        <div className="bg-green-100 p-4 rounded">
-          <p className="text-green-800">Zoho Mail is connected</p>
-          <p className="text-sm text-gray-600">Connected at: {connectedAt}</p>
+        <div>
+          <div className="bg-green-100 p-4 rounded mb-4">
+            <p className="text-green-800">Zoho Mail is connected</p>
+            <p className="text-sm text-gray-600">Connected at: {connectedAt}</p>
+          </div>
+          
+          <h2 className="text-xl font-semibold mb-4">Latest Emails</h2>
+          {renderEmailGrid()}
         </div>
       ) : (
         <div className="bg-red-100 p-4 rounded">

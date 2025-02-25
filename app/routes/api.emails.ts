@@ -77,7 +77,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
     
     return json({
       success: true,
-      emails,
+      emails: emails.map(email => ({
+        ...email,
+        hasAttachment: email.attachments && email.attachments.length > 0,
+        snippet: truncateText(email.snippet, 150)
+      })),
       total: emails.length
     });
   } catch (error) {
@@ -87,4 +91,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
       emails: []
     }, { status: 500 });
   }
+}
+
+// Utility function to truncate text
+function truncateText(text: string, maxLength: number): string {
+  if (!text) return '';
+  return text.length > maxLength 
+    ? text.substring(0, maxLength) + '...' 
+    : text;
 } 
