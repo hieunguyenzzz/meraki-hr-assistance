@@ -154,64 +154,70 @@ async function fetchZohoEmails(accessToken: string, limit: number = 5) {
             
             for (const attachment of attachmentInfoResponse.data.data.attachments) {
               try {
-                // Create download URL as backup
-                const downloadUrl = `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}?authtoken=${accessToken}`;
+                // Get attachment content - specifically for binary files
+                console.log('Fetching attachment content...');
+                console.log('Access token:', accessToken);
+                console.log(`Attachment URL: https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`);
                 
-                // Fetch actual attachment content for preview
-                let contentPreview = '';
-                try {
-                  // Get attachment content - use arraybuffer to handle binary data properly
-                  console.log('Fetching attachment content...');
-                  console.log('Access token:', accessToken);
-                  console.log(`https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`)
-                  const contentResponse = await axios.get(
-                    `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`,
-                    {
-                      headers: {
-                        'Authorization': `Zoho-oauthtoken ${accessToken}`,
-                        'Content-Type': 'application/json'
-                      },
-                      responseType: 'arraybuffer',
-                      // Remove the maxContentLength restriction
-                    }
-                  );
-                  
-                  // Check content type to determine how to handle the preview
-                  const contentType = contentResponse.headers['content-type'];
-                  
-                  if (contentType && contentType.includes('text')) {
-                    // For text content, convert buffer to string and take first 100 chars
-                    const textContent = Buffer.from(contentResponse.data).toString('utf-8');
-                    contentPreview = textContent.substring(0, 100) + '...';
-                  } else if (contentType && contentType.includes('image')) {
-                    contentPreview = '[Image content]';
-                  } else if (contentType && contentType.includes('pdf')) {
-                    contentPreview = '[PDF document]';
-                  } else if (contentType && contentType.includes('application')) {
-                    contentPreview = '[Application content]';
-                  } else {
-                    // For other types, just indicate binary content
-                    contentPreview = `[Binary content: ${contentType || 'unknown type'}]`;
+                const contentResponse = await axios.get(
+                  `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`,
+                  {
+                    headers: {
+                      'Authorization': `Zoho-oauthtoken ${accessToken}`,
+                      'Accept': '*/*',  // Accept any content type
+                      'Content-Type': 'application/octet-stream'  // Specify binary stream
+                    },
+                    responseType: 'arraybuffer',  // Crucial for binary files
+                    maxContentLength: Infinity,
+                    maxBodyLength: Infinity
                   }
-                  
-                  console.log(`Got content preview for ${attachment.attachmentName}: ${contentPreview.substring(0, 30)}...`);
-                } catch (contentError) {
-                  console.error(`Error fetching content for attachment ${attachment.attachmentId}:`, contentError.message);
-                  contentPreview = 'Content preview unavailable';
+                );
+                
+                // Check content type to determine how to handle the preview
+                const contentType = contentResponse.headers['content-type'] || '';
+                console.log('Attachment Content Type:', contentType);
+                
+                let contentPreview = '';
+                
+                if (contentType.includes('text')) {
+                  // For text content, convert buffer to string and take first 100 chars
+                  const textContent = Buffer.from(contentResponse.data).toString('utf-8');
+                  contentPreview = textContent.substring(0, 100) + '...';
+                } else if (contentType.includes('pdf')) {
+                  contentPreview = '[PDF document]';
+                } else if (contentType.includes('image')) {
+                  contentPreview = '[Image content]';
+                } else if (contentType.includes('application')) {
+                  // For PDFs, Office docs, etc.
+                  contentPreview = `[${contentType.split('/')[1].toUpperCase()} document]`;
+                } else {
+                  // Fallback for unknown types
+                  contentPreview = '[Binary content]';
                 }
                 
+                console.log(`Got content preview for ${attachment.attachmentName}: ${contentPreview}`);
+
                 attachmentsWithUrls.push({
                   id: attachment.attachmentId,
                   name: attachment.attachmentName,
                   size: attachment.attachmentSize,
                   type: '', // Not provided in the attachment info
-                  downloadUrl: downloadUrl,
+                  downloadUrl: `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}?authtoken=${accessToken}`,
                   contentPreview: contentPreview
                 });
                 
                 console.log(`Added attachment: ${attachment.attachmentName} with content preview`);
-              } catch (downloadError) {
-                console.error(`Error processing attachment ${attachment.attachmentId}:`, downloadError.message);
+              } catch (contentError) {
+                console.error(`Error fetching content for attachment ${attachment.attachmentId}:`, contentError);
+                
+                // Log more detailed error information
+                if (contentError.response) {
+                  console.error('Response status:', contentError.response.status);
+                  console.error('Response headers:', contentError.response.headers);
+                  console.error('Response data:', contentError.response.data);
+                }
+                
+                contentPreview = 'Content preview unavailable';
               }
             }
             
