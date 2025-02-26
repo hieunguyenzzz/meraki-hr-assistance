@@ -203,6 +203,7 @@ class ImapEmailFetcher {
           try {
             // Combine email body with attachment text for better extraction
             const allText = [
+              subject,
               body,
               ...attachments.map(a => a.contentPreview)
             ].join('\n\n');
@@ -212,6 +213,11 @@ class ImapEmailFetcher {
             console.log('Extracted applicant details:', JSON.stringify(email.applicantDetails, null, 2));
           } catch (error) {
             console.error('Error extracting applicant details:', error);
+          }
+          
+          // When logging or processing the email
+          if (email.applicantDetails?.otherAttachmentUrls) {
+            console.log('Other Attachment URLs:', JSON.stringify(email.applicantDetails.otherAttachmentUrls, null, 2));
           }
           
           emails.push(email);

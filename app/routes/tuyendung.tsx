@@ -4,7 +4,7 @@ import { useLoaderData } from "@remix-run/react";
 import axios from "axios";
 
 // Function to fetch emails
-async function fetchApplicants(limit = 10, request?: Request) {
+async function fetchApplicants(limit = 2, request?: Request) {
   try {
     console.log('Fetching applicants with limit:', limit);
     
