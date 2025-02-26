@@ -2,6 +2,7 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import axios from "axios";
 import { retrieveTokens } from "~/utils/token-storage";
+import { extractApplicantDetails, ApplicantDetails } from '~/services/openai-applicant-extraction';
 
 // Function to get access token using stored refresh token
 async function getZohoAccessToken() {
@@ -89,12 +90,18 @@ async function fetchZohoEmails(accessToken: string, limit: number = 5) {
         snippet: email.summary || '',
         hasAttachment: email.hasAttachment === '1',
         folderId: email.folderId || defaultFolderId,
-        attachments: []
+        attachments: [],
+        applicantDetails: null as ApplicantDetails | null
       };
 
       console.log(`Email has attachments: ${basicEmail.hasAttachment}, using folder ID: ${basicEmail.folderId}`);
 
-      // Only fetch attachment details if email has attachments
+      // Extract email body (you might need to fetch full email content)
+      const emailBody = basicEmail.snippet || '';
+
+      // Process attachments and their contents
+      const attachmentContents = [];
+      
       if (basicEmail.hasAttachment) {
         try {
           // Try to find the correct folder for this email if folderId is missing
@@ -217,6 +224,17 @@ async function fetchZohoEmails(accessToken: string, limit: number = 5) {
         }
       }
       
+      // Extract applicant details
+      try {
+        basicEmail.applicantDetails = await extractApplicantDetails(
+          emailBody, 
+          basicEmail.attachments.map(a => a.contentPreview)
+        );
+      } catch (detailsError) {
+        console.error('Error extracting applicant details:', detailsError);
+        basicEmail.applicantDetails = null;
+      }
+
       processedEmails.push(basicEmail);
     }
 

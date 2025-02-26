@@ -17,6 +17,7 @@
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "isbot": "^4.1.0",
+    "openai": "^4.85.4",
     "pkce-challenge": "^4.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
