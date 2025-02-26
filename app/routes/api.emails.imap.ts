@@ -1,11 +1,11 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { simpleParser } from 'mailparser';
-import { createRequire } from 'module';
-import { extractApplicantDetails, ApplicantDetails } from '~/services/openai-applicant-extraction';
-
 import * as imapSimple from 'imap-simple'
-
+import * as fs from 'fs';
+import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { R2Uploader } from '~/services/r2-upload';
 
 // Interface for parsed email
 interface ParsedEmail {
@@ -21,10 +21,14 @@ interface ParsedEmail {
     contentType: string;
     size: number;
     contentPreview: string;
-    downloadUrl?: string;
   }>;
   body: string;
-  applicantDetails?: ApplicantDetails | null;
+}
+
+// Create portfolio directory if it doesn't exist
+const portfolioDir = path.join(process.cwd(), 'public', 'portfolio');
+if (!fs.existsSync(portfolioDir)) {
+  fs.mkdirSync(portfolioDir, { recursive: true });
 }
 
 // IMAP Email Fetcher
@@ -40,7 +44,7 @@ class ImapEmailFetcher {
         port: 993,
         tls: true,
         tlsOptions: { rejectUnauthorized: false },
-        authTimeout: 10000
+        authTimeout: 30000
       }
     };
   }
@@ -49,47 +53,44 @@ class ImapEmailFetcher {
     console.log('Connecting to IMAP server...');
     
     try {
-      // Connect with longer timeout
-      const connectionPromise = imapSimple.connect(this.config);
-      const connection = await Promise.race([
-        connectionPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout after 30 seconds')), 30000))
-      ]) as any;
-      
+      // Connect to IMAP server
+      const connection = await imapSimple.connect(this.config);
       console.log('Connected to IMAP server, opening INBOX...');
+      
+      // Open inbox
       await connection.openBox('INBOX');
+      
+      // Get most recent emails
+      console.log(`Fetching the most recent ${limit} emails...`);
+      
+      // Fetch all UIDs to determine the range
+      const allUids = await connection.search(['ALL'], { uid: true });
+      console.log(`Found ${allUids.length} messages total`);
+      
+      // Get the most recent UIDs
+      const recentUids = allUids.slice(-limit).map(msg => msg.attributes.uid);
+      console.log(`Fetching ${recentUids.length} most recent emails (UIDs: ${recentUids.join(',')})`);
 
-      // Get message count
-      const box = connection.getBoxStatus();
-      console.log(`Total messages in mailbox: ${box.messages.total}`);
-      
-      if (box.messages.total === 0) {
-        console.log('No messages in mailbox');
-        await connection.end();
-        return [];
-      }
-
-      // Instead of searching by date, directly fetch the most recent messages by sequence
-      // Calculate the starting point to get only the last 'limit' messages
-      const start = Math.max(1, box.messages.total - limit + 1);
-      const end = box.messages.total;
-      
-      console.log(`Fetching the most recent ${limit} messages (${start}:${end})...`);
-      
-      // Use a simpler fetch instead of search
+      // Use search instead of fetch for imap-simple
+      const searchCriteria = ['ALL'];
       const fetchOptions = {
         bodies: ['HEADER', 'TEXT', ''],
         markSeen: false
       };
-
-      // Fetch directly using sequence numbers
-      const messages = await connection.fetch(`${start}:${end}`, fetchOptions);
-      console.log(`Successfully fetched ${messages.length} messages`);
+     
+    
+    // Fetch the specific UIDs
+    const messages = await connection.search([['UID', recentUids.join(',')]], fetchOptions);
+    console.log(`Fetched ${messages.length} messages`);
+      
+      // Get only the most recent messages
+      const recentMessages = messages.slice(-limit);
+      console.log(`Processing ${recentMessages.length} most recent messages`);
       
       const emails: ParsedEmail[] = [];
       
       // Process each message
-      for (const message of messages) {
+      for (const message of recentMessages) {
         try {
           // Get header and parse info
           const headerPart = message.parts.find(part => part.which === 'HEADER');
@@ -111,12 +112,25 @@ class ImapEmailFetcher {
             body = parsed.text || '';
             
             // Process attachments
-            attachments = parsed.attachments.map(attachment => ({
+            attachments = await Promise.all(parsed.attachments.map(async (attachment) => ({
               filename: attachment.filename || 'unnamed',
               contentType: attachment.contentType,
               size: attachment.size,
-              contentPreview: this.getAttachmentPreview(attachment)
-            }));
+              contentPreview: await this.getAttachmentPreview(attachment)
+            })));
+          }
+
+          // Log email body and attachments
+          console.log(`\n--- Email from ${from} ---`);
+          console.log(`Subject: ${subject}`);
+          console.log(`Body: ${body.substring(0, 500)}${body.length > 500 ? '...' : ''}`);
+          
+          if (attachments.length > 0) {
+            console.log(`\n--- Attachments (${attachments.length}) ---`);
+            attachments.forEach((attachment, index) => {
+              console.log(`Attachment ${index + 1}: ${attachment.filename} (${attachment.contentType})`);
+              console.log(`Preview: ${attachment.contentPreview}`);
+            });
           }
           
           // Create email object
@@ -132,16 +146,6 @@ class ImapEmailFetcher {
             body
           };
           
-          // Extract applicant details
-          try {
-            email.applicantDetails = await extractApplicantDetails(
-              body, 
-              attachments.map(a => a.contentPreview)
-            );
-          } catch (error) {
-            console.error('Error extracting applicant details:', error);
-          }
-          
           emails.push(email);
         } catch (error) {
           console.error('Error processing message:', error);
@@ -150,7 +154,7 @@ class ImapEmailFetcher {
 
       console.log(`Processed ${emails.length} emails`);
       
-      // Make sure to close the connection in a finally block
+      // Close the connection
       try {
         await connection.end();
         console.log('IMAP connection closed');
@@ -165,21 +169,59 @@ class ImapEmailFetcher {
     }
   }
 
-  // Get attachment preview
-  private getAttachmentPreview(attachment: any): string {
+  // Get attachment preview and full content
+  private async getAttachmentPreview(attachment: any): Promise<string> {
     try {
+      let contentPreview = '';
+
+      // Handle different content types
       if (attachment.contentType.includes('text')) {
         const textContent = attachment.content.toString('utf-8');
-        return textContent.substring(0, 100) + '...';
+        contentPreview = textContent.substring(0, 100) + '...';
+        
+        console.log(`\n--- Full Text Attachment: ${attachment.filename} ---`);
+        console.log(textContent);
+        
+        return contentPreview;
       } else if (attachment.contentType.includes('pdf')) {
-        return '[PDF document]';
+        try {
+          // Upload PDF to R2
+          const r2Uploader = new R2Uploader();
+          const publicUrl = await r2Uploader.uploadFile(
+            attachment.content, 
+            attachment.filename, 
+            'application/pdf'
+          );
+          
+          console.log(`\n--- PDF Attachment: ${attachment.filename} ---`);
+          console.log(`Uploaded to: ${publicUrl}`);
+          
+          contentPreview = `[PDF document available at: ${publicUrl}]`;
+          return contentPreview;
+        } catch (err) {
+          console.error(`Error uploading PDF ${attachment.filename}:`, err);
+          return `[PDF: ${attachment.filename} - upload failed]`;
+        }
       } else if (attachment.contentType.includes('image')) {
-        return '[Image content]';
+        contentPreview = '[Image content]';
+        
+        console.log(`\n--- Image Attachment: ${attachment.filename} ---`);
+        console.log('Image content is binary and cannot be directly printed.');
       } else if (attachment.contentType.includes('application')) {
-        return `[${attachment.contentType.split('/')[1].toUpperCase()} document]`;
+        contentPreview = `[${attachment.contentType.split('/')[1].toUpperCase()} document]`;
+        
+        console.log(`\n--- Application Attachment: ${attachment.filename} ---`);
+        console.log('Application document content is binary and cannot be directly printed.');
+      } else {
+        contentPreview = '[Binary content]';
+        
+        console.log(`\n--- Unknown Attachment: ${attachment.filename} ---`);
+        console.log('Attachment content type is unrecognized.');
       }
-      return '[Binary content]';
+
+      return contentPreview;
     } catch (error) {
+      console.error(`Error processing attachment ${attachment.filename}:`, error);
       return 'Content preview unavailable';
     }
   }
@@ -211,8 +253,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     });
   } catch (error) {
     console.error('Detailed IMAP Emails Error:', {
-      message: error.message,
-      stack: error.stack
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
 
     return json({
