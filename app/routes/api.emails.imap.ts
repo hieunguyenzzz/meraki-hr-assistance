@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { R2UploadService } from '~/services/r2-upload';
 import { PdfParserService, PdfParseResult } from '~/services/pdf-parser';
 import { extractApplicantDetails, ApplicantDetails } from '~/services/openai-applicant-extraction';
+import { getRedisCache } from '~/services/redis-cache';
 
 // Interface for parsed email
 interface ParsedEmail {
@@ -38,6 +39,7 @@ if (!fs.existsSync(portfolioDir)) {
 // IMAP Email Fetcher
 class ImapEmailFetcher {
   private config: any;
+  private redisCache;
 
   constructor() {
     this.config = {
@@ -51,10 +53,13 @@ class ImapEmailFetcher {
         authTimeout: 30000
       }
     };
+    
+    // Initialize Redis cache
+    this.redisCache = getRedisCache();
   }
 
-  async fetchEmails(limit: number = 5, flaggedOnly: boolean = false): Promise<ParsedEmail[]> {
-    console.log('Connecting to IMAP server with params:', { limit, flaggedOnly });
+  async fetchEmails(limit: number = 5, flaggedOnly: boolean = false, forceRefresh: boolean = false): Promise<ParsedEmail[]> {
+    console.log('Connecting to IMAP server with params:', { limit, flaggedOnly, forceRefresh });
     
     try {
       // Connect to IMAP server
@@ -102,6 +107,37 @@ class ImapEmailFetcher {
         return [];
       }
 
+      // Check cache for already processed emails
+      const cachedEmails: ParsedEmail[] = [];
+      const uncachedUids: string[] = [];
+      
+      if (!forceRefresh) {
+        for (const uid of uidsToProcess) {
+          const cacheKey = `email:${uid}`;
+          const cachedEmail = await this.redisCache.get(cacheKey);
+          
+          if (cachedEmail) {
+            console.log(`Found cached email for UID: ${uid}`);
+            cachedEmails.push(cachedEmail);
+          } else {
+            uncachedUids.push(uid.toString());
+          }
+        }
+        
+        console.log(`Found ${cachedEmails.length} cached emails, need to process ${uncachedUids.length} new emails`);
+        
+        // If all emails are cached, return them
+        if (uncachedUids.length === 0) {
+          console.log('All emails found in cache, no need to fetch from IMAP');
+          await connection.end();
+          return cachedEmails;
+        }
+      } else {
+        // Force refresh - process all UIDs
+        uncachedUids.push(...uidsToProcess.map(uid => uid.toString()));
+        console.log(`Force refresh enabled, processing all ${uncachedUids.length} emails`);
+      }
+
       const fetchOptions = {
         bodies: ['HEADER', 'TEXT', ''],
         markSeen: false
@@ -111,7 +147,7 @@ class ImapEmailFetcher {
       let messages = [];
 
       // Process each UID individually to ensure all are found
-      for (const uid of uidsToProcess) {
+      for (const uid of uncachedUids) {
         console.log(`Fetching message with UID: ${uid}`);
         const result = await connection.search([['UID', uid.toString()]], fetchOptions);
         if (result && result.length > 0) {
@@ -123,7 +159,7 @@ class ImapEmailFetcher {
 
       console.log(`Fetched ${messages.length} messages individually`);
       
-      const emails: ParsedEmail[] = [];
+      const newEmails: ParsedEmail[] = [];
       
       // Process each message
       for (const message of messages) {
@@ -255,7 +291,17 @@ class ImapEmailFetcher {
             ].join('\n\n');
             
             console.log('\n--- Sending combined content for applicant extraction ---');
-            email.applicantDetails = await extractApplicantDetails(allText, attachments);
+            const extractedDetails = await extractApplicantDetails(allText, attachments);
+            
+            // Use the email address from the "From" header directly
+            const fromEmail = from.match(/<([^>]*)>/) ? from.match(/<([^>]*)>/)[1] : from;
+            
+            // Create applicantDetails with email directly from IMAP
+            email.applicantDetails = {
+              ...extractedDetails,
+              email: fromEmail // Override with actual email from IMAP
+            };
+            
             console.log('Extracted applicant details:', JSON.stringify(email.applicantDetails, null, 2));
           } catch (error) {
             console.error('Error extracting applicant details:', error);
@@ -266,13 +312,18 @@ class ImapEmailFetcher {
             console.log('Other Attachment URLs:', JSON.stringify(email.applicantDetails.otherAttachmentUrls, null, 2));
           }
           
-          emails.push(email);
+          // Cache the processed email
+          const cacheKey = `email:${email.id}`;
+          await this.redisCache.set(cacheKey, email);
+          console.log(`Cached email with UID: ${email.id}`);
+          
+          newEmails.push(email);
         } catch (error) {
           console.error('Error processing individual message:', error);
         }
       }
 
-      console.log(`Processed ${emails.length} emails`);
+      console.log(`Processed ${newEmails.length} new emails`);
       
       // Close the connection
       try {
@@ -282,7 +333,11 @@ class ImapEmailFetcher {
         console.error('Error closing IMAP connection:', endError);
       }
       
-      return emails;
+      // Combine cached and new emails
+      const allProcessedEmails = [...cachedEmails, ...newEmails];
+      console.log(`Returning ${allProcessedEmails.length} total emails (${cachedEmails.length} from cache, ${newEmails.length} newly processed)`);
+      
+      return allProcessedEmails;
     } catch (error) {
       console.error('IMAP operation failed:', error);
       throw error;
@@ -372,17 +427,30 @@ export async function loader({ request }: LoaderFunctionArgs) {
     const limitParam = url.searchParams.get('limit');
     const limit = limitParam ? parseInt(limitParam, 10) : 5;
     const flaggedOnly = url.searchParams.get('flagged') === 'true';
+    const forceRefresh = url.searchParams.get('refresh') === 'true';
     
-    console.log('Loader parameters:', { limit, flaggedOnly, limitParam });
+    console.log('Loader parameters:', { limit, flaggedOnly, limitParam, forceRefresh });
     
     if (!process.env.ZOHO_IMAP_USERNAME || !process.env.ZOHO_IMAP_APP_PASSWORD) {
       console.error('IMAP credentials not configured');
       return json([], { status: 401 });
     }
 
+    // Check cache for final applicants list if not forcing refresh
+    if (!forceRefresh) {
+      const redisCache = getRedisCache();
+      const cacheKey = `applicants:${flaggedOnly}:${limit}`;
+      const cachedApplicants = await redisCache.get(cacheKey);
+      
+      if (cachedApplicants) {
+        console.log(`Using cached applicants list for flagged=${flaggedOnly}, limit=${limit}`);
+        return json(cachedApplicants);
+      }
+    }
+
     console.log(`Starting IMAP email fetch (${flaggedOnly ? 'flagged only' : 'all emails'}, limit: ${limit})...`);
     const imapFetcher = new ImapEmailFetcher();
-    const emails = await imapFetcher.fetchEmails(limit, flaggedOnly);
+    const emails = await imapFetcher.fetchEmails(limit, flaggedOnly, forceRefresh);
     
     // Extract only the applicant details from each email
     const applicants = emails
@@ -398,6 +466,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
     
     console.log(`Extracted ${applicants.length} applicant details from ${emails.length} emails`);
     
+    // Cache the applicants list
+    const redisCache = getRedisCache();
+    const cacheKey = `applicants:${flaggedOnly}:${limit}`;
+    await redisCache.set(cacheKey, applicants, 3600); // Cache for 1 hour
+    
     // Return just the array of applicants
     return json(applicants);
   } catch (error) {
@@ -408,4 +481,4 @@ export async function loader({ request }: LoaderFunctionArgs) {
     // Return empty array on error
     return json([]);
   }
-} 
+}

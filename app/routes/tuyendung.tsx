@@ -166,6 +166,20 @@ export default function TuyenDungPage() {
     // TODO: Implement interview scheduling
   };
 
+  const handleRefresh = async () => {
+    try {
+      // Force refresh the data
+      const baseUrl = window.location.origin;
+      const response = await axios.get(`${baseUrl}/api/emails/imap?limit=10&flagged=true&refresh=true`);
+      
+      // Reload the page to show updated data
+      window.location.reload();
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      alert('Failed to refresh data. Please try again.');
+    }
+  };
+
   return (
     <div className="container mx-auto p-4">
       <div className="flex justify-between items-center mb-4">
@@ -179,7 +193,7 @@ export default function TuyenDungPage() {
           </button>
           <button 
             className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition"
-            onClick={() => {/* TODO: Implement refresh logic */}}
+            onClick={handleRefresh}
           >
             Refresh
           </button>
