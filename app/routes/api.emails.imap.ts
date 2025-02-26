@@ -36,7 +36,7 @@ class ImapEmailFetcher {
       imap: {
         user: process.env.ZOHO_IMAP_USERNAME,
         password: process.env.ZOHO_IMAP_APP_PASSWORD,
-        host: 'imap.zoho.com',
+        host: 'imappro.zoho.com',
         port: 993,
         tls: true,
         tlsOptions: { rejectUnauthorized: false },
