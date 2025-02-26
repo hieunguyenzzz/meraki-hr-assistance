@@ -5,7 +5,8 @@ import * as imapSimple from 'imap-simple'
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { R2Uploader } from '~/services/r2-upload';
+import { R2UploadService } from '~/services/r2-upload';
+import { PdfParserService, PdfParseResult } from '~/services/pdf-parser';
 
 // Interface for parsed email
 interface ParsedEmail {
@@ -21,6 +22,7 @@ interface ParsedEmail {
     contentType: string;
     size: number;
     contentPreview: string;
+    parsedContent?: string;
   }>;
   body: string;
 }
@@ -112,12 +114,16 @@ class ImapEmailFetcher {
             body = parsed.text || '';
             
             // Process attachments
-            attachments = await Promise.all(parsed.attachments.map(async (attachment) => ({
-              filename: attachment.filename || 'unnamed',
-              contentType: attachment.contentType,
-              size: attachment.size,
-              contentPreview: await this.getAttachmentPreview(attachment)
-            })));
+            attachments = await Promise.all(parsed.attachments.map(async (attachment) => {
+              const attachmentInfo = {
+                filename: attachment.filename || 'unnamed',
+                contentType: attachment.contentType,
+                size: attachment.size,
+                contentPreview: await this.getAttachmentPreview(attachment)
+              };
+
+              return attachmentInfo;
+            }));
           }
 
           // Log email body and attachments
@@ -186,7 +192,7 @@ class ImapEmailFetcher {
       } else if (attachment.contentType.includes('pdf')) {
         try {
           // Upload PDF to R2
-          const r2Uploader = new R2Uploader();
+          const r2Uploader = new R2UploadService();
           const publicUrl = await r2Uploader.uploadFile(
             attachment.content, 
             attachment.filename, 
@@ -196,11 +202,24 @@ class ImapEmailFetcher {
           console.log(`\n--- PDF Attachment: ${attachment.filename} ---`);
           console.log(`Uploaded to: ${publicUrl}`);
           
-          contentPreview = `[PDF document available at: ${publicUrl}]`;
+          // Parse PDF content
+          const pdfParserService = new PdfParserService();
+          const parseResult = await pdfParserService.parsePdfFromUrl(publicUrl);
+          
+          if (parseResult.success && parseResult.content) {
+            console.log(`\n--- PDF Content Parsed: ${attachment.filename} ---`);
+            console.log(parseResult.content.substring(0, 500) + '...');
+            
+            contentPreview = `[PDF document available at: ${publicUrl}. Content preview: ${parseResult.content.substring(0, 200)}...]`;
+          } else {
+            console.warn(`Failed to parse PDF content: ${parseResult.error}`);
+            contentPreview = `[PDF document available at: ${publicUrl}. Content extraction failed.]`;
+          }
+          
           return contentPreview;
         } catch (err) {
-          console.error(`Error uploading PDF ${attachment.filename}:`, err);
-          return `[PDF: ${attachment.filename} - upload failed]`;
+          console.error(`Error processing PDF ${attachment.filename}:`, err);
+          return `[PDF: ${attachment.filename} - processing failed]`;
         }
       } else if (attachment.contentType.includes('image')) {
         contentPreview = '[Image content]';

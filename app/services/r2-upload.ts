@@ -1,8 +1,11 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
 
-export class R2Uploader {
+export class R2UploadService {
   private s3Client: S3Client;
   private bucketName: string;
+  private uploadDomain: string;
 
   constructor() {
     if (!process.env.R2_ACCOUNT_ID || !process.env.R2_ACCESS_KEY_ID || !process.env.R2_SECRET_ACCESS_KEY) {
@@ -10,6 +13,7 @@ export class R2Uploader {
     }
 
     this.bucketName = process.env.R2_BUCKET_NAME || 'default-bucket';
+    this.uploadDomain = process.env.R2_UPLOAD_DOMAIN || 'https://files.merakiweddingplanner.com';
     
     this.s3Client = new S3Client({
       region: "auto",
@@ -21,26 +25,42 @@ export class R2Uploader {
     });
   }
 
-  async uploadFile(file: Buffer, filename: string, contentType: string): Promise<string> {
-    const key = `portfolio/${Date.now()}-${filename}`;
+  async uploadFile(file: Buffer, originalFilename: string, contentType: string): Promise<string> {
+    // Generate a unique filename with timestamp
+    const timestamp = Date.now();
+    const fileExtension = path.extname(originalFilename);
+    const sanitizedFilename = this.sanitizeFilename(originalFilename);
+    const uniqueFilename = `${timestamp}-${sanitizedFilename}${fileExtension}`;
 
-    const uploadParams = {
-      Bucket: this.bucketName,
-      Key: key,
-      Body: file,
-      ContentType: contentType
-    };
+    // Construct the upload path (portfolio folder)
+    const uploadPath = `portfolio/${uniqueFilename}`;
 
     try {
+      const uploadParams = {
+        Bucket: this.bucketName,
+        Key: uploadPath,
+        Body: file,
+        ContentType: contentType
+      };
+
       await this.s3Client.send(new PutObjectCommand(uploadParams));
-      
-      // Construct public URL 
-      const publicUrl = `https://pub-${this.bucketName}.r2.dev/${key}`;
-      
-      return publicUrl;
+
+      // Construct and return the full URL
+      return `${this.uploadDomain}/${uploadPath}`;
     } catch (error) {
       console.error('R2 Upload Error:', error);
-      throw new Error(`Failed to upload file to R2: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error('Failed to upload file to R2');
     }
+  }
+
+  private sanitizeFilename(filename: string): string {
+    // Remove special characters and replace spaces
+    return filename
+      .normalize('NFD')           // Normalize to decomposed form
+      .replace(/[\u0300-\u036f]/g, '') // Remove accent marks
+      .replace(/[^a-z0-9]/gi, '_')     // Replace non-alphanumeric with underscore
+      .toLowerCase()
+      .replace(/_+/g, '_')        // Replace multiple underscores with single
+      .trim();
   }
 } 
