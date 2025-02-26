@@ -377,35 +377,35 @@ export async function loader({ request }: LoaderFunctionArgs) {
     
     if (!process.env.ZOHO_IMAP_USERNAME || !process.env.ZOHO_IMAP_APP_PASSWORD) {
       console.error('IMAP credentials not configured');
-      return json({
-        success: false,
-        error: 'IMAP credentials not configured',
-        emails: []
-      }, { status: 401 });
+      return json([], { status: 401 });
     }
 
     console.log(`Starting IMAP email fetch (${flaggedOnly ? 'flagged only' : 'all emails'}, limit: ${limit})...`);
     const imapFetcher = new ImapEmailFetcher();
     const emails = await imapFetcher.fetchEmails(limit, flaggedOnly);
     
-    console.log('Final emails returned:', emails.length);
+    // Extract only the applicant details from each email
+    const applicants = emails
+      .filter(email => email.applicantDetails) // Only include emails with applicant details
+      .map(email => {
+        // Add email ID and date to the applicant details for reference
+        return {
+          ...email.applicantDetails,
+          id: email.id,
+          emailDate: email.date
+        };
+      });
     
-    return json({
-      success: true,
-      emails,
-      total: emails.length,
-      flaggedOnly,
-      requestedLimit: limit
-    });
+    console.log(`Extracted ${applicants.length} applicant details from ${emails.length} emails`);
+    
+    // Return just the array of applicants
+    return json(applicants);
   } catch (error) {
     console.error('Detailed IMAP Emails Error:', {
       message: error instanceof Error ? error.message : 'Unknown error'
     });
 
-    return json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      emails: []
-    }, { status: 500 });
+    // Return empty array on error
+    return json([]);
   }
 } 

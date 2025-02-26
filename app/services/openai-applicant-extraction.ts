@@ -60,10 +60,11 @@ export async function extractApplicantDetails(
           - the position is either "Wedding Planner" or "Wedding Planner Assistant", if not found or not sure, leave it empty
           
           Summary Guidelines:
-          - Create a concise professional summary of the applicant
-          - Highlight key skills, experiences, and potential
-          - Keep it under 200 characters
-          - Focus on their suitability for a Wedding Planner role
+          - Create a detail summary of the applicant, education, experience, skills, and potential
+          - Include the applicant's strengths, weaknesses, and potential
+          - Include the details of the applicant's experience
+          - Keep it around 300 400 characters
+          - vietnamese
           
           Other Attachments Guidelines:
           - Identify any attachments that are NOT CV or Portfolio

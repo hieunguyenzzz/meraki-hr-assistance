@@ -3,7 +3,7 @@ import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import axios from "axios";
 
-// Function to fetch emails
+// Function to fetch applicants
 async function fetchApplicants(limit = 10, request?: Request) {
   try {
     console.log('Fetching applicants with limit:', limit);
@@ -16,7 +16,8 @@ async function fetchApplicants(limit = 10, request?: Request) {
     const response = await axios.get(`${baseUrl}/api/emails/imap?limit=${limit}&flagged=true`);
     
     console.log('API Response:', response.data);
-    return response.data.emails || [];
+    // API now returns the applicants array directly
+    return response.data || [];
   } catch (error) {
     console.error('Error fetching applicants:', error);
     return [];
