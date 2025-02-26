@@ -1,8 +1,12 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { simpleParser } from 'mailparser';
-import * as Imap from 'node-imap';
+import { createRequire } from 'module';
 import { extractApplicantDetails, ApplicantDetails } from '~/services/openai-applicant-extraction';
+
+// Import imap-simple
+const require = createRequire(import.meta.url);
+const imapSimple = require('imap-simple');
 
 // Interface for parsed email
 interface ParsedEmail {
@@ -14,12 +18,11 @@ interface ParsedEmail {
   snippet: string;
   hasAttachment: boolean;
   attachments: Array<{
-    id: string;
     filename: string;
     contentType: string;
     size: number;
-    content: Buffer;
     contentPreview: string;
+    downloadUrl?: string;
   }>;
   body: string;
   applicantDetails?: ApplicantDetails | null;
@@ -27,154 +30,111 @@ interface ParsedEmail {
 
 // IMAP Email Fetcher
 class ImapEmailFetcher {
-  private config: Imap.Config;
+  private config: any;
 
   constructor() {
     this.config = {
-      user: process.env.ZOHO_IMAP_USERNAME,
-      password: process.env.ZOHO_IMAP_APP_PASSWORD,
-      host: 'imap.zoho.com',
-      port: 993,
-      tls: true,
-      tlsOptions: { rejectUnauthorized: false }
+      imap: {
+        user: process.env.ZOHO_IMAP_USERNAME,
+        password: process.env.ZOHO_IMAP_APP_PASSWORD,
+        host: 'imap.zoho.com',
+        port: 993,
+        tls: true,
+        tlsOptions: { rejectUnauthorized: false },
+        authTimeout: 10000
+      }
     };
   }
 
-  // Fetch emails from IMAP server
   async fetchEmails(limit: number = 5): Promise<ParsedEmail[]> {
-    return new Promise((resolve, reject) => {
-      const imap = new Imap(this.config);
-      const emails: ParsedEmail[] = [];
+    console.log('Connecting to IMAP server...');
+    const connection = await imapSimple.connect(this.config);
+    console.log('Connected to IMAP server, opening INBOX...');
+    await connection.openBox('INBOX');
 
-      imap.once('ready', () => {
-        imap.openBox('INBOX', false, async (err, box) => {
-          if (err) {
-            reject(err);
-            return;
-          }
+    // Search for all emails
+    const searchCriteria = ['ALL'];
+    const fetchOptions = {
+      bodies: ['HEADER', 'TEXT', ''],
+      markSeen: false
+    };
 
-          // Calculate start and end sequence numbers
-          const start = Math.max(1, box.messages.total - limit);
-          const end = box.messages.total;
-
-          const fetch = imap.seq.fetch(`${start}:${end}`, {
-            bodies: ['HEADER', 'TEXT'],
-            markSeen: false,
-            envelope: true,
-            struct: true
-          });
-
-          fetch.on('message', (msg) => {
-            const email: Partial<ParsedEmail> = {
-              attachments: []
-            };
-
-            msg.on('body', async (stream, info) => {
-              if (info.which === 'HEADER') {
-                const header = await this.parseHeader(stream);
-                email.subject = header.subject;
-                email.from = header.from;
-                email.to = header.to;
-                email.date = header.date;
-              }
-
-              if (info.which === 'TEXT') {
-                const parsed = await simpleParser(stream);
-                email.body = parsed.text || '';
-                email.snippet = parsed.text?.substring(0, 200) || '';
-                email.hasAttachment = parsed.attachments.length > 0;
-
-                // Process attachments
-                for (const attachment of parsed.attachments) {
-                  try {
-                    const contentPreview = await this.getAttachmentPreview(attachment);
-                    email.attachments?.push({
-                      id: attachment.checksum,
-                      filename: attachment.filename || 'unnamed',
-                      contentType: attachment.contentType,
-                      size: attachment.size,
-                      content: attachment.content,
-                      contentPreview
-                    });
-                  } catch (attachmentError) {
-                    console.error('Attachment processing error:', attachmentError);
-                  }
-                }
-              }
-            });
-
-            msg.once('end', () => {
-              if (email.subject && email.body) {
-                emails.push(email as ParsedEmail);
-              }
-            });
-          });
-
-          fetch.once('error', (fetchErr) => {
-            console.error('Fetch error:', fetchErr);
-            reject(fetchErr);
-          });
-
-          fetch.once('end', async () => {
-            // Sort emails by date (most recent first)
-            emails.sort((a, b) => b.date.getTime() - a.date.getTime());
-
-            // Extract applicant details for each email
-            for (const email of emails) {
-              try {
-                email.applicantDetails = await extractApplicantDetails(
-                  email.body, 
-                  email.attachments.map(a => a.contentPreview)
-                );
-              } catch (detailsError) {
-                console.error('Error extracting applicant details:', detailsError);
-                email.applicantDetails = null;
-              }
-            }
-
-            imap.end();
-            resolve(emails);
-          });
-        });
-      });
-
-      imap.once('error', (err) => {
-        console.error('IMAP connection error:', err);
-        reject(err);
-      });
-
-      imap.connect();
-    });
-  }
-
-  // Parse email header
-  private parseHeader(stream: NodeJS.ReadableStream): Promise<{
-    subject: string;
-    from: string;
-    to: string;
-    date: Date;
-  }> {
-    return new Promise((resolve, reject) => {
-      Imap.parseHeader(stream, (err, headers) => {
-        if (err) {
-          reject(err);
-          return;
+    console.log('Searching for emails...');
+    const messages = await connection.search(searchCriteria, fetchOptions);
+    console.log(`Found ${messages.length} emails`);
+    
+    // Get the last 'limit' messages
+    const recentMessages = messages.slice(-limit);
+    const emails: ParsedEmail[] = [];
+    
+    // Process each message
+    for (const message of recentMessages) {
+      try {
+        // Get header and parse info
+        const headerPart = message.parts.find(part => part.which === 'HEADER');
+        const bodyPart = message.parts.find(part => part.which === 'TEXT');
+        const fullPart = message.parts.find(part => part.which === '');
+        
+        const header = headerPart ? headerPart.body : {};
+        const subject = Array.isArray(header.subject) ? header.subject[0] : header.subject || 'No Subject';
+        const from = Array.isArray(header.from) ? header.from[0] : header.from || 'Unknown';
+        const to = Array.isArray(header.to) ? header.to[0] : header.to || 'Unknown';
+        const date = new Date(header.date ? header.date[0] : Date.now());
+        
+        // Parse email content
+        let body = '';
+        let attachments = [];
+        
+        if (fullPart) {
+          const parsed = await simpleParser(fullPart.body);
+          body = parsed.text || '';
+          
+          // Process attachments
+          attachments = parsed.attachments.map(attachment => ({
+            filename: attachment.filename || 'unnamed',
+            contentType: attachment.contentType,
+            size: attachment.size,
+            contentPreview: this.getAttachmentPreview(attachment)
+          }));
         }
+        
+        // Create email object
+        const email: ParsedEmail = {
+          id: message.attributes.uid.toString(),
+          subject,
+          from,
+          to,
+          date,
+          snippet: body.substring(0, 200),
+          hasAttachment: attachments.length > 0,
+          attachments,
+          body
+        };
+        
+        // Extract applicant details
+        try {
+          email.applicantDetails = await extractApplicantDetails(
+            body, 
+            attachments.map(a => a.contentPreview)
+          );
+        } catch (error) {
+          console.error('Error extracting applicant details:', error);
+        }
+        
+        emails.push(email);
+      } catch (error) {
+        console.error('Error processing message:', error);
+      }
+    }
 
-        resolve({
-          subject: headers.subject?.[0] || 'No Subject',
-          from: headers.from?.[0] || 'Unknown Sender',
-          to: headers.to?.[0] || 'Unknown Recipient',
-          date: new Date(headers.date?.[0] || Date.now())
-        });
-      });
-    });
+    console.log(`Processed ${emails.length} emails`);
+    await connection.end();
+    return emails;
   }
 
   // Get attachment preview
-  private async getAttachmentPreview(attachment: any): Promise<string> {
+  private getAttachmentPreview(attachment: any): string {
     try {
-      // Handle different content types
       if (attachment.contentType.includes('text')) {
         const textContent = attachment.content.toString('utf-8');
         return textContent.substring(0, 100) + '...';
@@ -187,7 +147,6 @@ class ImapEmailFetcher {
       }
       return '[Binary content]';
     } catch (error) {
-      console.error('Attachment preview error:', error);
       return 'Content preview unavailable';
     }
   }
@@ -196,12 +155,11 @@ class ImapEmailFetcher {
 // Loader function for the API route
 export async function loader({ request }: LoaderFunctionArgs) {
   try {
-    // Get URL parameters
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit') || '5', 10);
     
-    // Check if IMAP credentials are set
     if (!process.env.ZOHO_IMAP_USERNAME || !process.env.ZOHO_IMAP_APP_PASSWORD) {
+      console.error('IMAP credentials not configured');
       return json({
         success: false,
         error: 'IMAP credentials not configured',
@@ -209,7 +167,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       }, { status: 401 });
     }
 
-    // Fetch emails using IMAP
+    console.log('Starting IMAP email fetch...');
     const imapFetcher = new ImapEmailFetcher();
     const emails = await imapFetcher.fetchEmails(limit);
     
