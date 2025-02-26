@@ -47,88 +47,118 @@ class ImapEmailFetcher {
 
   async fetchEmails(limit: number = 5): Promise<ParsedEmail[]> {
     console.log('Connecting to IMAP server...');
-    const connection = await imapSimple.connect(this.config);
-    console.log('Connected to IMAP server, opening INBOX...');
-    await connection.openBox('INBOX');
-
-    // Search for all emails
-    const searchCriteria = ['ALL'];
-    const fetchOptions = {
-      bodies: ['HEADER', 'TEXT', ''],
-      markSeen: false
-    };
-
-    console.log('Searching for emails...');
-    const messages = await connection.search(searchCriteria, fetchOptions);
-    console.log(`Found ${messages.length} emails`);
     
-    // Get the last 'limit' messages
-    const recentMessages = messages.slice(-limit);
-    const emails: ParsedEmail[] = [];
-    
-    // Process each message
-    for (const message of recentMessages) {
-      try {
-        // Get header and parse info
-        const headerPart = message.parts.find(part => part.which === 'HEADER');
-        const bodyPart = message.parts.find(part => part.which === 'TEXT');
-        const fullPart = message.parts.find(part => part.which === '');
-        
-        const header = headerPart ? headerPart.body : {};
-        const subject = Array.isArray(header.subject) ? header.subject[0] : header.subject || 'No Subject';
-        const from = Array.isArray(header.from) ? header.from[0] : header.from || 'Unknown';
-        const to = Array.isArray(header.to) ? header.to[0] : header.to || 'Unknown';
-        const date = new Date(header.date ? header.date[0] : Date.now());
-        
-        // Parse email content
-        let body = '';
-        let attachments = [];
-        
-        if (fullPart) {
-          const parsed = await simpleParser(fullPart.body);
-          body = parsed.text || '';
-          
-          // Process attachments
-          attachments = parsed.attachments.map(attachment => ({
-            filename: attachment.filename || 'unnamed',
-            contentType: attachment.contentType,
-            size: attachment.size,
-            contentPreview: this.getAttachmentPreview(attachment)
-          }));
-        }
-        
-        // Create email object
-        const email: ParsedEmail = {
-          id: message.attributes.uid.toString(),
-          subject,
-          from,
-          to,
-          date,
-          snippet: body.substring(0, 200),
-          hasAttachment: attachments.length > 0,
-          attachments,
-          body
-        };
-        
-        // Extract applicant details
+    try {
+      // Add timeout to the connection attempt
+      const connectionPromise = imapSimple.connect(this.config);
+      const connection = await Promise.race([
+        connectionPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout after 15 seconds')), 15000))
+      ]) as any;
+      
+      console.log('Connected to IMAP server, opening INBOX...');
+      await connection.openBox('INBOX');
+
+      // Use a more targeted search to improve performance
+      // Search only for messages received in the last 7 days
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      console.log('Searching for emails from the last 7 days...');
+      const searchCriteria = [['SINCE', sevenDaysAgo]];
+      const fetchOptions = {
+        bodies: ['HEADER', 'TEXT', ''],
+        markSeen: false
+      };
+
+      // Add timeout to the search operation
+      const searchPromise = connection.search(searchCriteria, fetchOptions);
+      const messages = await Promise.race([
+        searchPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Search timeout after 30 seconds')), 30000))
+      ]) as any;
+      
+      console.log(`Found ${messages.length} emails in the last 7 days`);
+      
+      // Get the last 'limit' messages
+      const recentMessages = messages.slice(-limit);
+      const emails: ParsedEmail[] = [];
+      
+      // Process each message
+      for (const message of recentMessages) {
         try {
-          email.applicantDetails = await extractApplicantDetails(
-            body, 
-            attachments.map(a => a.contentPreview)
-          );
+          // Get header and parse info
+          const headerPart = message.parts.find(part => part.which === 'HEADER');
+          const bodyPart = message.parts.find(part => part.which === 'TEXT');
+          const fullPart = message.parts.find(part => part.which === '');
+          
+          const header = headerPart ? headerPart.body : {};
+          const subject = Array.isArray(header.subject) ? header.subject[0] : header.subject || 'No Subject';
+          const from = Array.isArray(header.from) ? header.from[0] : header.from || 'Unknown';
+          const to = Array.isArray(header.to) ? header.to[0] : header.to || 'Unknown';
+          const date = new Date(header.date ? header.date[0] : Date.now());
+          
+          // Parse email content
+          let body = '';
+          let attachments = [];
+          
+          if (fullPart) {
+            const parsed = await simpleParser(fullPart.body);
+            body = parsed.text || '';
+            
+            // Process attachments
+            attachments = parsed.attachments.map(attachment => ({
+              filename: attachment.filename || 'unnamed',
+              contentType: attachment.contentType,
+              size: attachment.size,
+              contentPreview: this.getAttachmentPreview(attachment)
+            }));
+          }
+          
+          // Create email object
+          const email: ParsedEmail = {
+            id: message.attributes.uid.toString(),
+            subject,
+            from,
+            to,
+            date,
+            snippet: body.substring(0, 200),
+            hasAttachment: attachments.length > 0,
+            attachments,
+            body
+          };
+          
+          // Extract applicant details
+          try {
+            email.applicantDetails = await extractApplicantDetails(
+              body, 
+              attachments.map(a => a.contentPreview)
+            );
+          } catch (error) {
+            console.error('Error extracting applicant details:', error);
+          }
+          
+          emails.push(email);
         } catch (error) {
-          console.error('Error extracting applicant details:', error);
+          console.error('Error processing message:', error);
         }
-        
-        emails.push(email);
-      } catch (error) {
-        console.error('Error processing message:', error);
       }
-    }
 
-    console.log(`Processed ${emails.length} emails`);
-    await connection.end();
-    return emails;
+      console.log(`Processed ${emails.length} emails`);
+      
+      // Make sure to close the connection in a finally block
+      try {
+        await connection.end();
+        console.log('IMAP connection closed');
+      } catch (endError) {
+        console.error('Error closing IMAP connection:', endError);
+      }
+      
+      return emails;
+    } catch (error) {
+      console.error('IMAP operation failed:', error);
+      throw error;
+    }
   }
 
   // Get attachment preview
