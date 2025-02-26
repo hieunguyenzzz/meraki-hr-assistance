@@ -102,6 +102,20 @@ export default function Index() {
               </div>
             )}
             
+            {email.applicantDetails && (
+              <div className="mt-2 border-t pt-2">
+                <h4 className="text-sm font-semibold mb-1">Applicant Details</h4>
+                <div className="text-xs text-gray-600">
+                  <p>Name: {email.applicantDetails.name}</p>
+                  <p>Position: {email.applicantDetails.position}</p>
+                  <p>Email: {email.applicantDetails.email}</p>
+                  {email.applicantDetails.extractionStatus === 'failed' && (
+                    <p className="text-red-500">Extraction encountered issues</p>
+                  )}
+                </div>
+              </div>
+            )}
+            
             <div className="text-xs text-gray-500 mt-2">
               {new Date(email.date).toLocaleString()}
             </div>
