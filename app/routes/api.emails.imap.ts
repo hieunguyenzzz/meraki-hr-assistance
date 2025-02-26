@@ -49,43 +49,47 @@ class ImapEmailFetcher {
     console.log('Connecting to IMAP server...');
     
     try {
-      // Add timeout to the connection attempt
+      // Connect with longer timeout
       const connectionPromise = imapSimple.connect(this.config);
       const connection = await Promise.race([
         connectionPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout after 15 seconds')), 15000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout after 30 seconds')), 30000))
       ]) as any;
       
       console.log('Connected to IMAP server, opening INBOX...');
       await connection.openBox('INBOX');
 
-      // Use a more targeted search to improve performance
-      // Search only for messages received in the last 7 days
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      // Get message count
+      const box = connection.getBoxStatus();
+      console.log(`Total messages in mailbox: ${box.messages.total}`);
       
-      console.log('Searching for emails from the last 7 days...');
-      const searchCriteria = [['SINCE', sevenDaysAgo]];
+      if (box.messages.total === 0) {
+        console.log('No messages in mailbox');
+        await connection.end();
+        return [];
+      }
+
+      // Instead of searching by date, directly fetch the most recent messages by sequence
+      // Calculate the starting point to get only the last 'limit' messages
+      const start = Math.max(1, box.messages.total - limit + 1);
+      const end = box.messages.total;
+      
+      console.log(`Fetching the most recent ${limit} messages (${start}:${end})...`);
+      
+      // Use a simpler fetch instead of search
       const fetchOptions = {
         bodies: ['HEADER', 'TEXT', ''],
         markSeen: false
       };
 
-      // Add timeout to the search operation
-      const searchPromise = connection.search(searchCriteria, fetchOptions);
-      const messages = await Promise.race([
-        searchPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Search timeout after 30 seconds')), 30000))
-      ]) as any;
+      // Fetch directly using sequence numbers
+      const messages = await connection.fetch(`${start}:${end}`, fetchOptions);
+      console.log(`Successfully fetched ${messages.length} messages`);
       
-      console.log(`Found ${messages.length} emails in the last 7 days`);
-      
-      // Get the last 'limit' messages
-      const recentMessages = messages.slice(-limit);
       const emails: ParsedEmail[] = [];
       
       // Process each message
-      for (const message of recentMessages) {
+      for (const message of messages) {
         try {
           // Get header and parse info
           const headerPart = message.parts.find(part => part.which === 'HEADER');
