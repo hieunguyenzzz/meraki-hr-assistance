@@ -20,6 +20,8 @@ ARG PORT=3000
 ARG ZOHO_CLIENT_ID
 ARG ZOHO_CLIENT_SECRET
 ARG ZOHO_REFRESH_TOKEN
+ARG OPENAI_API_KEY
+ARG ZOHO_REDIRECT_URI
 
 # Set environment variables
 ENV NODE_ENV=${NODE_ENV}
@@ -27,6 +29,8 @@ ENV PORT=${PORT}
 ENV ZOHO_CLIENT_ID=${ZOHO_CLIENT_ID}
 ENV ZOHO_CLIENT_SECRET=${ZOHO_CLIENT_SECRET}
 ENV ZOHO_REFRESH_TOKEN=${ZOHO_REFRESH_TOKEN}
+ENV OPENAI_API_KEY=${OPENAI_API_KEY}
+ENV ZOHO_REDIRECT_URI=${ZOHO_REDIRECT_URI}
 
 # Build the application
 RUN npm run build
@@ -50,7 +54,7 @@ RUN chown -R remix:nodejs /app
 USER remix
 
 # Expose the port the app runs on (default to 3000 if not set)
-EXPOSE ${PORT:-3000}
+EXPOSE ${PORT:-80}
 
 # Command to run the application
 CMD ["npm", "start"] 
