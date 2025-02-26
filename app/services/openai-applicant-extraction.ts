@@ -35,7 +35,7 @@ export async function extractApplicantDetails(
           2. Email Address of Applicant
           3. Position of Applicant who is applying for
           4. Date of Birth
-          5. Education (Highest Degree, Major, Institution)
+          5. Education (Highest Degree, Major, Institution) ( also university name)
           6. Relevant Work Experiences
           7. Salary Expectation
           8. Address
