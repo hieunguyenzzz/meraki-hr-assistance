@@ -25,37 +25,43 @@ export class PdfParserService {
   ): Promise<PdfParseResult> {
     try {
       console.log(`Parsing document from URL: ${url}`);
-      console.log(`Content Type: ${contentType}`);
-
+      
       // Validate URL
       if (!url || !url.startsWith('http')) {
         throw new Error('Invalid document URL provided');
       }
 
-      // Make the API call exactly as shown in the README
+      // Special handling for Google Drive URLs
+      let parsedUrl = url;
+      if (url.includes('drive.google.com')) {
+        console.log('Detected Google Drive URL, sending directly to parser');
+      }
+
+      // Make the API call directly with the URL as shown in the README
       const response = await axios.post(this.parserUrl, 
-        { url: url },
+        { url: parsedUrl },
         { 
           headers: { 'Content-Type': 'application/json' },
           timeout: 30000 // 30 seconds timeout
         }
       );
 
-      // Check response structure matches the README example
+      // Handle the response according to the README format
       if (response.data && response.data.text) {
         return {
           success: true,
           text: response.data.text,
           document_type: response.data.document_type || 
             (contentType.includes('pdf') ? 'pdf' : 
-             contentType.includes('docx') ? 'docx' : 'unknown'),
+            contentType.includes('docx') ? 'docx' : 
+            url.includes('drive.google.com') ? 'gdrive' : 'unknown'),
           metadata: {
             filename: url.split('/').pop()
           }
         };
       }
 
-      // If no content is returned
+      // Response error handling
       return {
         success: false,
         error: 'No content extracted from document'

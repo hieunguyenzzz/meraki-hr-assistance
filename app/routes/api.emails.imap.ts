@@ -151,25 +151,71 @@ class ImapEmailFetcher {
             attachments = await Promise.all(parsed.attachments.map(async (attachment) => {
               const r2Uploader = new R2UploadService();
               let publicUrl = '';
+              let contentPreview = '';
 
-              // Upload PDFs and get public URL
-              if (attachment.contentType.includes('pdf')) {
-                publicUrl = await r2Uploader.uploadFile(
-                  attachment.content, 
-                  attachment.filename, 
-                  'application/pdf'
-                );
+              // Check for Google Drive links in text attachments
+              if (attachment.contentType.includes('text') && 
+                  attachment.content.toString('utf-8').includes('drive.google.com')) {
+                try {
+                  const textContent = attachment.content.toString('utf-8');
+                  const driveUrlMatch = textContent.match(/(https:\/\/drive\.google\.com\/[^\s]+)/);
+                  
+                  if (driveUrlMatch && driveUrlMatch[0]) {
+                    const driveUrl = driveUrlMatch[0];
+                    console.log(`\n--- Google Drive Link found: ${driveUrl} ---`);
+                    
+                    // Parse Google Drive document content using our parser API
+                    const pdfParserService = new PdfParserService();
+                    const parseResult = await pdfParserService.parsePdfFromUrl(driveUrl, 'application/pdf');
+                    
+                    if (parseResult.success && parseResult.text) {
+                      console.log(`\n--- Google Drive Document Parsed ---`);
+                      contentPreview = `[Google Drive document available at: ${driveUrl}. Content preview: ${parseResult.text.substring(0, 200)}...]`;
+                      
+                      // Use the Google Drive URL as the attachment URL
+                      publicUrl = driveUrl;
+                    }
+                  }
+                } catch (err) {
+                  console.error(`Error processing Google Drive link:`, err);
+                }
               }
 
-              const attachmentInfo = {
+              // Regular attachment handling (PDFs, DOCX, etc.)
+              if (!contentPreview) {
+                if (attachment.contentType.includes('pdf') || 
+                    attachment.contentType.includes('vnd.openxmlformats-officedocument.wordprocessingml.document')) {
+                  // Upload PDFs and get public URL
+                  publicUrl = await r2Uploader.uploadFile(
+                    attachment.content, 
+                    attachment.filename, 
+                    attachment.contentType
+                  );
+                } else if (attachment.contentType.includes('image')) {
+                  contentPreview = '[Image content]';
+                  
+                  console.log(`\n--- Image Attachment: ${attachment.filename} ---`);
+                  console.log('Image content is binary and cannot be directly printed.');
+                } else if (attachment.contentType.includes('application')) {
+                  contentPreview = `[${attachment.contentType.split('/')[1].toUpperCase()} document]`;
+                  
+                  console.log(`\n--- Application Attachment: ${attachment.filename} ---`);
+                  console.log('Application document content is binary and cannot be directly printed.');
+                } else {
+                  contentPreview = '[Binary content]';
+                  
+                  console.log(`\n--- Unknown Attachment: ${attachment.filename} ---`);
+                  console.log('Attachment content type is unrecognized.');
+                }
+              }
+
+              return {
                 filename: attachment.filename || 'unnamed',
                 contentType: attachment.contentType,
                 size: attachment.size,
-                contentPreview: await this.getAttachmentPreview(attachment),
-                url: publicUrl  // Add the URL for PDF attachments
+                contentPreview: contentPreview || await this.getAttachmentPreview(attachment),
+                url: publicUrl  // Add the URL for PDF attachments or Google Drive links
               };
-
-              return attachmentInfo;
             }));
           }
 
