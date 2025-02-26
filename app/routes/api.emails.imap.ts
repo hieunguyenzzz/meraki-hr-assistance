@@ -7,6 +7,7 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { R2UploadService } from '~/services/r2-upload';
 import { PdfParserService, PdfParseResult } from '~/services/pdf-parser';
+import { extractApplicantDetails, ApplicantDetails } from '~/services/openai-applicant-extraction';
 
 // Interface for parsed email
 interface ParsedEmail {
@@ -22,9 +23,10 @@ interface ParsedEmail {
     contentType: string;
     size: number;
     contentPreview: string;
-    parsedContent?: string;
+    url?: string;
   }>;
   body: string;
+  applicantDetails?: ApplicantDetails;
 }
 
 // Create portfolio directory if it doesn't exist
@@ -51,7 +53,7 @@ class ImapEmailFetcher {
     };
   }
 
-  async fetchEmails(limit: number = 5): Promise<ParsedEmail[]> {
+  async fetchEmails(limit: number = 5, flaggedOnly: boolean = false): Promise<ParsedEmail[]> {
     console.log('Connecting to IMAP server...');
     
     try {
@@ -65,25 +67,27 @@ class ImapEmailFetcher {
       // Get most recent emails
       console.log(`Fetching the most recent ${limit} emails...`);
       
-      // Fetch all UIDs to determine the range
-      const allUids = await connection.search(['ALL'], { uid: true });
-      console.log(`Found ${allUids.length} messages total`);
+      // Modify search criteria to include flagged emails if requested
+      const searchCriteria = flaggedOnly 
+        ? ['FLAGGED'] 
+        : ['ALL'];
+      
+      // Fetch UIDs based on search criteria
+      const allUids = await connection.search(searchCriteria, { uid: true });
+      console.log(`Found ${allUids.length} ${flaggedOnly ? 'flagged' : 'total'} messages`);
       
       // Get the most recent UIDs
       const recentUids = allUids.slice(-limit).map(msg => msg.attributes.uid);
-      console.log(`Fetching ${recentUids.length} most recent emails (UIDs: ${recentUids.join(',')})`);
+      console.log(`Fetching ${recentUids.length} most recent ${flaggedOnly ? 'flagged' : ''} emails (UIDs: ${recentUids.join(',')})`);
 
-      // Use search instead of fetch for imap-simple
-      const searchCriteria = ['ALL'];
       const fetchOptions = {
         bodies: ['HEADER', 'TEXT', ''],
         markSeen: false
       };
      
-    
-    // Fetch the specific UIDs
-    const messages = await connection.search([['UID', recentUids.join(',')]], fetchOptions);
-    console.log(`Fetched ${messages.length} messages`);
+      // Fetch the specific UIDs
+      const messages = await connection.search([['UID', recentUids.join(',')]], fetchOptions);
+      console.log(`Fetched ${messages.length} messages`);
       
       // Get only the most recent messages
       const recentMessages = messages.slice(-limit);
@@ -115,11 +119,24 @@ class ImapEmailFetcher {
             
             // Process attachments
             attachments = await Promise.all(parsed.attachments.map(async (attachment) => {
+              const r2Uploader = new R2UploadService();
+              let publicUrl = '';
+
+              // Upload PDFs and get public URL
+              if (attachment.contentType.includes('pdf')) {
+                publicUrl = await r2Uploader.uploadFile(
+                  attachment.content, 
+                  attachment.filename, 
+                  'application/pdf'
+                );
+              }
+
               const attachmentInfo = {
                 filename: attachment.filename || 'unnamed',
                 contentType: attachment.contentType,
                 size: attachment.size,
-                contentPreview: await this.getAttachmentPreview(attachment)
+                contentPreview: await this.getAttachmentPreview(attachment),
+                url: publicUrl  // Add the URL for PDF attachments
               };
 
               return attachmentInfo;
@@ -151,6 +168,21 @@ class ImapEmailFetcher {
             attachments,
             body
           };
+          
+          // Extract applicant details
+          try {
+            // Combine email body with attachment text for better extraction
+            const allText = [
+              body,
+              ...attachments.map(a => a.contentPreview)
+            ].join('\n\n');
+            
+            console.log('\n--- Sending combined content for applicant extraction ---');
+            email.applicantDetails = await extractApplicantDetails(allText, attachments);
+            console.log('Extracted applicant details:', JSON.stringify(email.applicantDetails, null, 2));
+          } catch (error) {
+            console.error('Error extracting applicant details:', error);
+          }
           
           emails.push(email);
         } catch (error) {
@@ -251,6 +283,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   try {
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit') || '5', 10);
+    const flaggedOnly = url.searchParams.get('flagged') === 'true';
     
     if (!process.env.ZOHO_IMAP_USERNAME || !process.env.ZOHO_IMAP_APP_PASSWORD) {
       console.error('IMAP credentials not configured');
@@ -261,14 +294,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
       }, { status: 401 });
     }
 
-    console.log('Starting IMAP email fetch...');
+    console.log(`Starting IMAP email fetch (${flaggedOnly ? 'flagged only' : 'all emails'})...`);
     const imapFetcher = new ImapEmailFetcher();
-    const emails = await imapFetcher.fetchEmails(limit);
+    const emails = await imapFetcher.fetchEmails(limit, flaggedOnly);
     
     return json({
       success: true,
       emails,
-      total: emails.length
+      total: emails.length,
+      flaggedOnly
     });
   } catch (error) {
     console.error('Detailed IMAP Emails Error:', {

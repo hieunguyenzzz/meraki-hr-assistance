@@ -7,7 +7,7 @@ import axios from "axios";
 // Function to fetch emails
 async function fetchLatestEmails(limit = 10) {
   try {
-    const response = await axios.get(`/api/emails?limit=${limit}`);
+    const response = await axios.get(`/api/emails?limit=${limit}&flagged=true`);
     return response.data.emails || [];
   } catch (error) {
     console.error('Error fetching emails:', error);
@@ -48,79 +48,64 @@ export default function Index() {
     }
 
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {emails.map((email) => (
-          <div 
-            key={email.id} 
-            className="bg-white shadow-md rounded-lg p-4 border hover:shadow-lg transition"
-          >
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="font-bold text-lg truncate">{email.subject}</h3>
-              {email.hasAttachment && (
-                <span className="text-sm text-blue-500">
-                  📎 {email.attachments.length} Attachment(s)
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-gray-600 mb-2">From: {email.from}</p>
-            <p className="text-sm text-gray-800 line-clamp-3">{email.snippet}</p>
-            
-            {/* Attachments */}
-            {email.hasAttachment && (
-              <div className="mt-2 border-t pt-2">
-                <h4 className="text-sm font-semibold mb-1">
-                  Attachments: {email.attachments.length > 0 ? 
-                    `(${email.attachments.length})` : 
-                    "(Unable to fetch attachments)"}
-                </h4>
-                {email.attachments.length > 0 ? (
-                  email.attachments.map((attachment) => (
-                    <div key={attachment.id} className="mb-2 border-b pb-2">
-                      <div className="flex justify-between items-center text-xs text-gray-600 mb-1">
-                        <span className="truncate max-w-[70%]">{attachment.name}</span>
-                        <a 
-                          href={attachment.downloadUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-500 hover:underline"
-                        >
-                          Download
-                        </a>
-                      </div>
-                      {attachment.contentPreview && (
-                        <div className="text-xs bg-gray-50 p-2 rounded font-mono">
-                          {attachment.contentPreview}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-gray-500">
-                    Attachments may require additional permissions
-                  </p>
-                )}
-              </div>
-            )}
-            
-            {email.applicantDetails && (
-              <div className="mt-2 border-t pt-2">
-                <h4 className="text-sm font-semibold mb-1">Applicant Details</h4>
-                <div className="text-xs text-gray-600">
-                  <p>Name: {email.applicantDetails.name}</p>
-                  <p>Position: {email.applicantDetails.position}</p>
-                  <p>Email: {email.applicantDetails.email}</p>
-                  {email.applicantDetails.extractionStatus === 'failed' && (
-                    <p className="text-red-500">Extraction encountered issues</p>
-                  )}
-                </div>
-              </div>
-            )}
-            
-            <div className="text-xs text-gray-500 mt-2">
-              {new Date(email.date).toLocaleString()}
-            </div>
-          </div>
-        ))}
+      <div className="w-full overflow-x-auto">
+        <table className="w-full border-collapse border">
+          <thead>
+            <tr className="bg-gray-200">
+              <th className="border p-2">Full Name</th>
+              <th className="border p-2">Position</th>
+              <th className="border p-2">Year of Birth</th>
+              <th className="border p-2">Phone</th>
+              <th className="border p-2">Email</th>
+              <th className="border p-2">Address</th>
+              <th className="border p-2">CV</th>
+              <th className="border p-2">Portfolio</th>
+              <th className="border p-2">Source</th>
+              <th className="border p-2">School</th>
+            </tr>
+          </thead>
+          <tbody>
+            {emails.map((email) => {
+              const details = email.applicantDetails || {};
+              return (
+                <tr key={email.id} className="hover:bg-gray-100">
+                  <td className="border p-2">{details.fullName || 'N/A'}</td>
+                  <td className="border p-2">{details.position || 'N/A'}</td>
+                  <td className="border p-2">{details.yearOfBirth || 'N/A'}</td>
+                  <td className="border p-2">{details.phone || 'N/A'}</td>
+                  <td className="border p-2">{details.email || 'N/A'}</td>
+                  <td className="border p-2">{details.address || 'N/A'}</td>
+                  <td className="border p-2">
+                    {details.cvUrl ? (
+                      <a 
+                        href={details.cvUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-blue-500 hover:underline"
+                      >
+                        View CV
+                      </a>
+                    ) : 'N/A'}
+                  </td>
+                  <td className="border p-2">
+                    {details.portfolioUrl ? (
+                      <a 
+                        href={details.portfolioUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-blue-500 hover:underline"
+                      >
+                        View Portfolio
+                      </a>
+                    ) : 'N/A'}
+                  </td>
+                  <td className="border p-2">{details.source || 'N/A'}</td>
+                  <td className="border p-2">{details.school || 'N/A'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     );
   };

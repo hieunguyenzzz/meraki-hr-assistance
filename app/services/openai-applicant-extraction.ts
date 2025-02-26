@@ -4,35 +4,85 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
-export async function extractApplicantInfo(text: string) {
+export interface Attachment {
+  filename: string;
+  contentType: string;
+  contentPreview: string;
+  url: string;
+}
+
+export interface ApplicantDetails {
+  fullName?: string;
+  position?: string;
+  yearOfBirth?: number;
+  phone?: string;
+  email?: string;
+  address?: string;
+  cvUrl?: string;
+  portfolioUrl?: string;
+  source?: string;
+  school?: string;
+}
+
+export async function extractApplicantDetails(
+  text: string, 
+  attachments: Attachment[]
+): Promise<ApplicantDetails> {
   try {
+    // Prepare detailed attachment information
+    const attachmentDetails = attachments.map(attachment => ({
+      filename: attachment.filename,
+      contentType: attachment.contentType,
+      preview: attachment.contentPreview.slice(0, 500),
+      url: attachment.url
+    }));
+
     const extraction = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
+      response_format: { type: "json_object" },
       messages: [
         {
           role: 'system', 
-          content: 'You are a professional resume parser and extractor.'
+          content: `You are a professional resume and portfolio analyzer. 
+          Extract structured information about the applicant and identify CV and portfolio.
+          
+          Provide JSON with these fields: 
+          fullName, position, yearOfBirth, phone, email, address, cvUrl, portfolioUrl, source, school
+
+          Attachment Analysis Rules:
+          - Carefully examine each attachment's filename, content type, and preview
+          - Identify which attachment is most likely a CV/Resume
+          - Identify which attachment is most likely a Portfolio
+          - Use the URL of the identified attachments
+          - If unsure, leave CV or Portfolio URL empty
+          
+          Extraction Guidelines:
+          - Use the most relevant information from the text and attachments
+          - yearOfBirth should be 4-digit year
+          - Be precise and concise`
         },
         {
           role: 'user', 
           content: `
-            Extract the most important professional information from this text:
-            - Full Name
-            - Job Title/Role
-            - Key Skills
-            - Professional Summary
+            Extract applicant details from this text and attachments:
 
             Text:
             ${text.slice(0, 4000)}
+
+            Attachments:
+            ${JSON.stringify(attachmentDetails, null, 2)}
           `
         }
       ],
       max_tokens: 500
     })
 
-    return extraction.choices[0].message.content || 'No information extracted'
+    const rawContent = extraction.choices[0].message.content || '{}';
+    const parsedDetails: ApplicantDetails = JSON.parse(rawContent);
+
+    return parsedDetails;
   } catch (error) {
-    console.error('Applicant info extraction error:', error)
-    return 'Extraction failed'
+    console.error('Applicant details extraction error:', error)
+    return {};
   }
 } 
