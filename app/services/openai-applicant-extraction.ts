@@ -32,9 +32,16 @@ export async function extractApplicantDetails(
           content: `You are an HR assistant specializing in extracting applicant details for a Wedding Planner position. 
           Extract the following details from the email and attachments:
           1. Full Name of Applicant
-          2. Date of Birth
-          3. Education (Highest Degree, Major, Institution)
-          4. Relevant Work Experiences
+          2. Email Address of Applicant
+          3. Position of Applicant who is applying for
+          4. Date of Birth
+          5. Education (Highest Degree, Major, Institution)
+          6. Relevant Work Experiences
+          7. Salary Expectation
+          8. Address
+          9. Availability to start
+          10. Phone Number
+          11. Any other relevant information
 
           If any information is not clearly present, return "Not Found" for that field.
           Provide the response in a structured JSON format.`
