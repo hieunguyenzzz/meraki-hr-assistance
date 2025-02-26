@@ -4,9 +4,8 @@ import { simpleParser } from 'mailparser';
 import { createRequire } from 'module';
 import { extractApplicantDetails, ApplicantDetails } from '~/services/openai-applicant-extraction';
 
-// Import imap-simple
-const require = createRequire(import.meta.url);
-const imapSimple = require('imap-simple');
+import * as imapSimple from 'imap-simple'
+
 
 // Interface for parsed email
 interface ParsedEmail {
