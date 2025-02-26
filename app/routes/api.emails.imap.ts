@@ -54,7 +54,7 @@ class ImapEmailFetcher {
   }
 
   async fetchEmails(limit: number = 5, flaggedOnly: boolean = false): Promise<ParsedEmail[]> {
-    console.log('Connecting to IMAP server...');
+    console.log('Connecting to IMAP server with params:', { limit, flaggedOnly });
     
     try {
       // Connect to IMAP server
@@ -64,39 +64,69 @@ class ImapEmailFetcher {
       // Open inbox
       await connection.openBox('INBOX');
       
-      // Get most recent emails
-      console.log(`Fetching the most recent ${limit} emails...`);
-      
-      // Modify search criteria to include flagged emails if requested
+      // Use more specific search criteria for flagged emails
       const searchCriteria = flaggedOnly 
-        ? ['FLAGGED'] 
+        ? [['FLAGGED']]  // More explicit flagged search
         : ['ALL'];
+      
+      console.log('Using search criteria:', JSON.stringify(searchCriteria));
       
       // Fetch UIDs based on search criteria
       const allUids = await connection.search(searchCriteria, { uid: true });
-      console.log(`Found ${allUids.length} ${flaggedOnly ? 'flagged' : 'total'} messages`);
+      console.log(`Found ${allUids.length} ${flaggedOnly ? 'flagged' : 'total'} messages:`, 
+        allUids.map(msg => msg.attributes.uid));
       
-      // Get the most recent UIDs
-      const recentUids = allUids.slice(-limit).map(msg => msg.attributes.uid);
-      console.log(`Fetching ${recentUids.length} most recent ${flaggedOnly ? 'flagged' : ''} emails (UIDs: ${recentUids.join(',')})`);
+      // Process all flagged emails if flaggedOnly is true, respecting the limit
+      // If no flagged emails found or flaggedOnly is false, use the normal limit
+      let uidsToProcess = [];
+      
+      if (flaggedOnly) {
+        // Extract UIDs of all flagged messages
+        const flaggedUids = allUids.map(msg => msg.attributes.uid);
+        console.log('All flagged UIDs:', flaggedUids);
+        
+        // Take up to 'limit' UIDs, or all if limit is higher than available
+        uidsToProcess = limit && limit < flaggedUids.length 
+          ? flaggedUids.slice(-limit)  // Take last 'limit' flagged UIDs
+          : flaggedUids;               // Take all flagged UIDs if fewer than limit
+      } else {
+        // For non-flagged emails, just use the last 'limit' UIDs
+        uidsToProcess = allUids.slice(-limit).map(msg => msg.attributes.uid);
+      }
+      
+      console.log(`Processing ${uidsToProcess.length} emails (UIDs: ${uidsToProcess.join(',')})`);
+
+      // Check if there are any UIDs to process
+      if (uidsToProcess.length === 0) {
+        console.log('No emails to process.');
+        return [];
+      }
 
       const fetchOptions = {
         bodies: ['HEADER', 'TEXT', ''],
         markSeen: false
       };
      
-      // Fetch the specific UIDs
-      const messages = await connection.search([['UID', recentUids.join(',')]], fetchOptions);
-      console.log(`Fetched ${messages.length} messages`);
-      
-      // Get only the most recent messages
-      const recentMessages = messages.slice(-limit);
-      console.log(`Processing ${recentMessages.length} most recent messages`);
+      // Fetch the specific UIDs - using a different approach for multiple UIDs
+      let messages = [];
+
+      // Process each UID individually to ensure all are found
+      for (const uid of uidsToProcess) {
+        console.log(`Fetching message with UID: ${uid}`);
+        const result = await connection.search([['UID', uid.toString()]], fetchOptions);
+        if (result && result.length > 0) {
+          messages = messages.concat(result);
+        } else {
+          console.log(`No message found for UID: ${uid}`);
+        }
+      }
+
+      console.log(`Fetched ${messages.length} messages individually`);
       
       const emails: ParsedEmail[] = [];
       
       // Process each message
-      for (const message of recentMessages) {
+      for (const message of messages) {
         try {
           // Get header and parse info
           const headerPart = message.parts.find(part => part.which === 'HEADER');
@@ -186,7 +216,7 @@ class ImapEmailFetcher {
           
           emails.push(email);
         } catch (error) {
-          console.error('Error processing message:', error);
+          console.error('Error processing individual message:', error);
         }
       }
 
@@ -221,37 +251,42 @@ class ImapEmailFetcher {
         console.log(textContent);
         
         return contentPreview;
-      } else if (attachment.contentType.includes('pdf')) {
+      } else if (attachment.contentType.includes('pdf') || attachment.contentType.includes('vnd.openxmlformats-officedocument.wordprocessingml.document')) {
         try {
-          // Upload PDF to R2
+          // Determine content type for upload and parsing
+          const contentType = attachment.contentType.includes('pdf') 
+            ? 'application/pdf' 
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          
+          // Upload file to R2
           const r2Uploader = new R2UploadService();
           const publicUrl = await r2Uploader.uploadFile(
             attachment.content, 
             attachment.filename, 
-            'application/pdf'
+            contentType
           );
           
-          console.log(`\n--- PDF Attachment: ${attachment.filename} ---`);
+          console.log(`\n--- ${contentType === 'application/pdf' ? 'PDF' : 'DOCX'} Attachment: ${attachment.filename} ---`);
           console.log(`Uploaded to: ${publicUrl}`);
           
-          // Parse PDF content
+          // Parse document content
           const pdfParserService = new PdfParserService();
-          const parseResult = await pdfParserService.parsePdfFromUrl(publicUrl);
+          const parseResult = await pdfParserService.parsePdfFromUrl(publicUrl, contentType);
           
-          if (parseResult.success && parseResult.content) {
-            console.log(`\n--- PDF Content Parsed: ${attachment.filename} ---`);
-            console.log(parseResult.content.substring(0, 500) + '...');
+          if (parseResult.success && parseResult.text) {
+            console.log(`\n--- ${parseResult.document_type.toUpperCase()} Document Parsed: ${attachment.filename} ---`);
+            console.log(parseResult.text.substring(0, 500) + '...');
             
-            contentPreview = `[PDF document available at: ${publicUrl}. Content preview: ${parseResult.content.substring(0, 200)}...]`;
+            contentPreview = `[${parseResult.document_type.toUpperCase()} document available at: ${publicUrl}. Content preview: ${parseResult.text.substring(0, 200)}...]`;
           } else {
-            console.warn(`Failed to parse PDF content: ${parseResult.error}`);
-            contentPreview = `[PDF document available at: ${publicUrl}. Content extraction failed.]`;
+            console.warn(`Failed to parse ${parseResult.document_type} content: ${parseResult.error}`);
+            contentPreview = `[${parseResult.document_type.toUpperCase()} document available at: ${publicUrl}. Content extraction failed.]`;
           }
           
           return contentPreview;
         } catch (err) {
-          console.error(`Error processing PDF ${attachment.filename}:`, err);
-          return `[PDF: ${attachment.filename} - processing failed]`;
+          console.error(`Error processing ${attachment.contentType} ${attachment.filename}:`, err);
+          return `[${attachment.contentType} : ${attachment.filename} - processing failed]`;
         }
       } else if (attachment.contentType.includes('image')) {
         contentPreview = '[Image content]';
@@ -282,8 +317,11 @@ class ImapEmailFetcher {
 export async function loader({ request }: LoaderFunctionArgs) {
   try {
     const url = new URL(request.url);
-    const limit = parseInt(url.searchParams.get('limit') || '5', 10);
+    const limitParam = url.searchParams.get('limit');
+    const limit = limitParam ? parseInt(limitParam, 10) : 5;
     const flaggedOnly = url.searchParams.get('flagged') === 'true';
+    
+    console.log('Loader parameters:', { limit, flaggedOnly, limitParam });
     
     if (!process.env.ZOHO_IMAP_USERNAME || !process.env.ZOHO_IMAP_APP_PASSWORD) {
       console.error('IMAP credentials not configured');
@@ -294,15 +332,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
       }, { status: 401 });
     }
 
-    console.log(`Starting IMAP email fetch (${flaggedOnly ? 'flagged only' : 'all emails'})...`);
+    console.log(`Starting IMAP email fetch (${flaggedOnly ? 'flagged only' : 'all emails'}, limit: ${limit})...`);
     const imapFetcher = new ImapEmailFetcher();
     const emails = await imapFetcher.fetchEmails(limit, flaggedOnly);
+    
+    console.log('Final emails returned:', emails.length);
     
     return json({
       success: true,
       emails,
       total: emails.length,
-      flaggedOnly
+      flaggedOnly,
+      requestedLimit: limit
     });
   } catch (error) {
     console.error('Detailed IMAP Emails Error:', {

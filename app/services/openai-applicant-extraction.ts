@@ -58,6 +58,7 @@ export async function extractApplicantDetails(
           
           Extraction Guidelines:
           - Use the most relevant information from the text and attachments
+          - address is location
           - yearOfBirth should be 4-digit year
           - Be precise and concise`
         },
