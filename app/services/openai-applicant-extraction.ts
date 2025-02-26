@@ -23,6 +23,7 @@ export interface ApplicantDetails {
   source?: string;
   school?: string;
   otherAttachmentUrls?: string[];
+  summary?: string;
 }
 
 export async function extractApplicantDetails(
@@ -48,7 +49,7 @@ export async function extractApplicantDetails(
           Extract structured information about the applicant and identify CV and portfolio.
           
           Provide JSON with these fields: 
-          fullName, position, yearOfBirth, phone, email, address, cvUrl, portfolioUrl, source, school, otherAttachmentUrls
+          fullName, position, yearOfBirth, phone, email, address, cvUrl, portfolioUrl, source, school, otherAttachmentUrls, summary
 
           Attachment Analysis Rules:
           - Carefully examine each attachment's filename, content type, and preview
@@ -57,6 +58,12 @@ export async function extractApplicantDetails(
           - Use the URL of the identified attachments
           - If unsure, leave CV or Portfolio URL empty
           - the position is either "Wedding Planner" or "Wedding Planner Assistant", if not found or not sure, leave it empty
+          
+          Summary Guidelines:
+          - Create a concise professional summary of the applicant
+          - Highlight key skills, experiences, and potential
+          - Keep it under 200 characters
+          - Focus on their suitability for a Wedding Planner role
           
           Other Attachments Guidelines:
           - Identify any attachments that are NOT CV or Portfolio

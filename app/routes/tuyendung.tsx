@@ -4,7 +4,7 @@ import { useLoaderData } from "@remix-run/react";
 import axios from "axios";
 
 // Function to fetch emails
-async function fetchApplicants(limit = 2, request?: Request) {
+async function fetchApplicants(limit = 10, request?: Request) {
   try {
     console.log('Fetching applicants with limit:', limit);
     
@@ -67,6 +67,8 @@ export default function TuyenDungPage() {
               <th className="border p-2">Portfolio</th>
               <th className="border p-2">Source</th>
               <th className="border p-2">School</th>
+              <th className="border p-2">Other Attachments</th>
+              <th className="border p-2">Summary</th>
               <th className="border p-2">Actions</th>
             </tr>
           </thead>
@@ -108,15 +110,35 @@ export default function TuyenDungPage() {
                   <td className="border p-2">{details.source || 'N/A'}</td>
                   <td className="border p-2">{details.school || 'N/A'}</td>
                   <td className="border p-2">
+                    {details.otherAttachmentUrls && details.otherAttachmentUrls.length > 0 ? (
+                      <div className="flex flex-col space-y-1">
+                        {details.otherAttachmentUrls.map((url, index) => (
+                          <a 
+                            key={index}
+                            href={url} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-blue-500 hover:underline text-sm"
+                          >
+                            Attachment {index + 1}
+                          </a>
+                        ))}
+                      </div>
+                    ) : 'N/A'}
+                  </td>
+                  <td className="border p-2 text-sm italic">
+                    {details.summary || 'No summary available'}
+                  </td>
+                  <td className="border p-2">
                     <div className="flex space-x-2">
                       <button 
-                        className="bg-green-500 text-white px-2 py-1 rounded text-xs hover:bg-green-600"
+                        className="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600"
                         onClick={() => handleReview(applicant)}
                       >
                         Review
                       </button>
                       <button 
-                        className="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600"
+                        className="bg-green-500 text-white px-2 py-1 rounded text-xs hover:bg-green-600"
                         onClick={() => handleInterview(applicant)}
                       >
                         Interview
