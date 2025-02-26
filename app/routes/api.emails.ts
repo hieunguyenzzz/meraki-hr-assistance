@@ -161,6 +161,9 @@ async function fetchZohoEmails(accessToken: string, limit: number = 5) {
                 let contentPreview = '';
                 try {
                   // Get attachment content - use arraybuffer to handle binary data properly
+                  console.log('Fetching attachment content...');
+                  console.log('Access token:', accessToken);
+                  console.log(`https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`)
                   const contentResponse = await axios.get(
                     `https://mail.zoho.com/api/accounts/${accountId}/folders/${folderIdToUse}/messages/${email.messageId}/attachments/${attachment.attachmentId}`,
                     {
